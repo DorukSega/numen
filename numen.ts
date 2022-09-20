@@ -62,7 +62,13 @@ const Functions = new Map<string, TOKENS>([
     ["-", TOKENS.FUNCTION],
     ["/", TOKENS.FUNCTION],
     ["*", TOKENS.FUNCTION],
+    ["%", TOKENS.FUNCTION],
     ["print", TOKENS.FUNCTION],
+    ["swap", TOKENS.FUNCTION],
+    ["drop", TOKENS.FUNCTION], //TODO pop?
+    ["copy", TOKENS.FUNCTION],
+    ["max", TOKENS.FUNCTION],
+    ["min", TOKENS.FUNCTION],
     ["ret", TOKENS.FUNCTION],
 ]);
 
@@ -309,6 +315,27 @@ function execute(func: n_Function, g_func: n_Function = func) {
                 case'*':
                     b_multiply(context);
                     break;
+                case'/':
+                    b_divide(context);
+                    break;
+                case'%':
+                    b_mod(context);
+                    break;
+                case'swap':
+                    b_swap(context);
+                    break;
+                case'drop':
+                    b_drop(context);
+                    break;
+                case'copy':
+                    b_copy(context);
+                    break;
+                case'max':
+                    b_max(context);
+                    break;
+                case'min':
+                    b_min(context);
+                    break;
                 case'ret':
                     b_ret(context, g_stack);
                     break;
@@ -332,7 +359,7 @@ function execute(func: n_Function, g_func: n_Function = func) {
         } else
             context.push(item);
     }
-    /* //TODO
+    /* //TODO this is gc :)
     if (fname != "_global")
         m_Block.delete(fname);
         */
@@ -359,6 +386,30 @@ function b_ret(f_context: Stack, g_context: Stack) {
         g_context.push(last);
     } else
         throw "no value to return";
+}
+
+function b_copy(f_context: Stack) {
+    let last = f_context.top();
+
+    if (last != undefined) {
+        f_context.push(last);
+    } else
+        throw "no value to copy";
+}
+
+function b_drop(f_context: Stack) {
+    let last = f_context.pop();
+    if (last == undefined)
+        throw "no value to drop";
+}
+
+function b_swap(f_context: Stack) {
+    let second = f_context.pop();
+    let first = f_context.pop();
+    if (first && second) {
+        f_context.push(second, first);
+    } else
+        throw "no values to swap";
 }
 
 function b_plus(context: Stack) {
@@ -405,6 +456,62 @@ function b_multiply(context: Stack) {
             throw first.value + " and " + second.value + " is not multiply-able";
     } else
         throw "no value to multiply";
+}
+
+function b_divide(context: Stack) {
+    const valid = [TOKENS.NUMBER, TOKENS.INTEGER, TOKENS.FLOAT, TOKENS.DOUBLE];
+    let second = context.pop();
+    let first = context.pop();
+    if (first != undefined && second != undefined) {
+        if (valid.includes(first.type) && valid.includes(second.type)) {
+            if (typeof first.value == "number" && typeof second.value == "number")
+                context.push({type: first.type, value: first.value / second.value});
+        } else
+            throw first.value + " and " + second.value + " is not divide-able";
+    } else
+        throw "no value to divide";
+}
+
+function b_mod(context: Stack) {
+    const valid = [TOKENS.NUMBER, TOKENS.INTEGER, TOKENS.FLOAT, TOKENS.DOUBLE];
+    let second = context.pop();
+    let first = context.pop();
+    if (first != undefined && second != undefined) {
+        if (valid.includes(first.type) && valid.includes(second.type)) {
+            if (typeof first.value == "number" && typeof second.value == "number")
+                context.push({type: first.type, value: first.value % second.value});
+        } else
+            throw first.value + " and " + second.value + " is not mod-able";
+    } else
+        throw "no values to do a modulus operation";
+}
+
+function b_max(context: Stack) {
+    const valid = [TOKENS.NUMBER, TOKENS.INTEGER, TOKENS.FLOAT, TOKENS.DOUBLE];
+    let second = context.pop();
+    let first = context.pop();
+    if (first != undefined && second != undefined) {
+        if (valid.includes(first.type) && valid.includes(second.type)) {
+            if (typeof first.value == "number" && typeof second.value == "number")
+                context.push({type: first.type, value: first.value > second.value ? first.value : second.value});
+        } else
+            throw first.value + " and " + second.value + " is not comparable for max";
+    } else
+        throw "no values to do a max comparison";
+}
+
+function b_min(context: Stack) {
+    const valid = [TOKENS.NUMBER, TOKENS.INTEGER, TOKENS.FLOAT, TOKENS.DOUBLE];
+    let second = context.pop();
+    let first = context.pop();
+    if (first != undefined && second != undefined) {
+        if (valid.includes(first.type) && valid.includes(second.type)) {
+            if (typeof first.value == "number" && typeof second.value == "number")
+                context.push({type: first.type, value: first.value < second.value ? first.value : second.value});
+        } else
+            throw first.value + " and " + second.value + " is not comparable for min";
+    } else
+        throw "no values to do a min comparison";
 }
 
 //
