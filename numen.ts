@@ -1,23 +1,13 @@
 ﻿import * as fs from 'fs';
 import * as path from 'path';
-import {CONNREFUSED} from "dns";
+
 
 declare global {
     interface Array<T> {
         top(): T;
     }
-
-    interface Map<K, V> {
-        getKey(value: V): K | undefined;
-    }
 }
 
-Map.prototype.getKey = function (value) {
-    this.forEach((val, key) => {
-        if (value === val)
-            return key;
-    })
-}
 
 Array.prototype.top = function () {
     return this[this.length - 1];
@@ -32,6 +22,7 @@ enum TOKENS {
     FLOAT, // Float
     DOUBLE,
     STRING, //String
+    BOOLEAN, // Float
     KEYWORD, // KEYWORD
     IDENTIFIER, // potential identifier
     T_NUMBER, // type declarations
@@ -42,16 +33,26 @@ enum TOKENS {
     T_FUNCTION,
     END,
     IF,
-    ELIF,
+    IFF,
     ELSE,
+    WHILE,
+    DO,
     AS,
 }
 
+//builtin
+const BooleanDefs = new Map<string, TOKENS>([
+    ["true", TOKENS.BOOLEAN],
+    ["false", TOKENS.BOOLEAN],
+]);
 
 const Keywords = new Map<TOKENS, string>([
     [TOKENS.END, "end"],
     [TOKENS.IF, "if"],
+    [TOKENS.IFF, "iff"],
     [TOKENS.ELSE, "else"],
+    [TOKENS.WHILE, "while"],
+    [TOKENS.DO, "do"],
     [TOKENS.T_FUNCTION, "fun"],
     [TOKENS.AS, "as"],
 ]);
@@ -63,6 +64,12 @@ const Functions = new Map<string, TOKENS>([
     ["/", TOKENS.FUNCTION],
     ["*", TOKENS.FUNCTION],
     ["%", TOKENS.FUNCTION],
+    ["==", TOKENS.FUNCTION],
+    ["!=", TOKENS.FUNCTION],
+    [">", TOKENS.FUNCTION],
+    ["<", TOKENS.FUNCTION],
+    [">=", TOKENS.FUNCTION],
+    ["<=", TOKENS.FUNCTION],
     ["print", TOKENS.FUNCTION],
     ["swap", TOKENS.FUNCTION],
     ["drop", TOKENS.FUNCTION], //TODO pop?
@@ -75,18 +82,19 @@ const Functions = new Map<string, TOKENS>([
 //builtin types
 const Types = new Map<string, TOKENS>([
     ["num", TOKENS.NUMBER],
+    ["bool", TOKENS.BOOLEAN],
     ["int", TOKENS.T_INT],
     ["float", TOKENS.T_FLOAT],
     ["double", TOKENS.T_DOUBLE],
     ["string", TOKENS.STRING],
-])
+]);
+
 type possibleTypes = string | number | boolean | Array<possibleTypes>;
 
 interface Token {
     type: TOKENS,
     value: possibleTypes
 }
-
 
 type Stack = Array<Token>;
 type Block = Map<string, Token>;
@@ -141,10 +149,20 @@ function parseWord(word: string): Token {
             type: TOKENS.FUNCTION,
             value: word
         };
+    } else if (Array.from(Keywords.values()).includes(word)) {
+        return {
+            type: Array.from(Keywords)[Array.from(Keywords.values()).indexOf(word)][0],
+            value: word
+        };
     } else if (Types.has(word)) {
         return {
             type: Types.get(word)!,
             value: word
+        };
+    } else if (BooleanDefs.has(word)) {
+        return {
+            type: BooleanDefs.get(word)!,
+            value: (word === "true")
         };
     } else if (!isNaN(Number(word))) {
         return {
@@ -168,7 +186,7 @@ function parseFile(wsarr: string[]) {
             let qtype = stringStartsWith(word);
             word = word.slice(1);
 
-            while (stringEndsWith(word) != qtype)
+            while (stringEndsWith(word) !== qtype)
                 word += " " + wsarr[++i];
 
             word = word.slice(0, -1);
@@ -183,7 +201,8 @@ function parseFile(wsarr: string[]) {
             let wsf = new Array<string>;
             let n_params = new Array<Token>();
 
-            while (wsarr[i + 1] != Keywords.get(TOKENS.AS)) {
+            //gets parameters
+            while (wsarr[i + 1] !== Keywords.get(TOKENS.AS)) {
                 let pr_name = wsarr[++i];
                 let pr_type = Types.get(pr_name);
                 if (!pr_type)
@@ -195,8 +214,15 @@ function parseFile(wsarr: string[]) {
             }
             i++; //as
 
-            while (wsarr[i + 1] != Keywords.get(TOKENS.END)) {
-                wsf.push(wsarr[++i]);
+            let block_count = 0;
+
+            while (wsarr[i + 1] !== Keywords.get(TOKENS.END) || block_count !== 0) {
+                let tok = wsarr[++i];
+                if (tok === Keywords.get(TOKENS.IF) || tok === Keywords.get(TOKENS.WHILE))
+                    block_count++;
+                else if (tok === Keywords.get(TOKENS.END))
+                    block_count--;
+                wsf.push(tok);
             }
             i++; // end
 
@@ -214,7 +240,7 @@ function parseFile(wsarr: string[]) {
     if (g_stack.length && N_debug) {
         console.log("\nGlobal:");
         g_stack.forEach(it => {
-            process.stdout.write(` { ${it.value} } `);
+            process.stdout.write(` { ${it.value} , ${it.type} } `);
         })
         console.log("\n")
     }
@@ -230,7 +256,7 @@ function parseStack(wsarr: string[], stack: Stack) {
             let qtype = stringStartsWith(word);
             word = word.slice(1);
 
-            while (stringEndsWith(word) != qtype)
+            while (stringEndsWith(word) !== qtype)
                 word += " " + wsarr[++i];
 
             word = word.slice(0, -1);
@@ -248,8 +274,9 @@ function parseStack(wsarr: string[], stack: Stack) {
     if (stack.length && N_debug) {
         console.log("\nFunc:");
         stack.forEach(it => {
-            process.stdout.write(` { ${it.value} } `);
+            process.stdout.write(` { ${it.value} , ${it.type} } `);
         })
+        console.log();
     }
 }
 
@@ -280,13 +307,13 @@ function execute(func: n_Function, g_func: n_Function = func) {
         throw func.name + "'s block is undefined";
     if (!g_block)
         throw g_func.name + "'s block is undefined";
-
     let stack = func.func_stack;
     let g_stack = g_func.func_stack;
 
-    //this is the current location of the execution stack
+    //function has to be reinitilized everytime it is called, so data doesn't carry between calls
     let context_func = new n_Function(func.name);
     let context = context_func.func_stack;
+
     let revs = new Array<Token>();
     for (let i = func.params.length - 1; i >= 0; i--) {
         let pr = g_stack.pop();
@@ -305,6 +332,9 @@ function execute(func: n_Function, g_func: n_Function = func) {
             switch (item.value) {
                 case "print":
                     b_print(context);
+                    break;
+                case'ret':
+                    b_ret(context, g_stack);
                     break;
                 case'+':
                     b_plus(context);
@@ -336,8 +366,23 @@ function execute(func: n_Function, g_func: n_Function = func) {
                 case'min':
                     b_min(context);
                     break;
-                case'ret':
-                    b_ret(context, g_stack);
+                case'==':
+                    b_equals(context);
+                    break;
+                case'!=':
+                    b_not_equals(context);
+                    break;
+                case'>':
+                    b_bigger(context);
+                    break;
+                case'<':
+                    b_smaller(context);
+                    break;
+                case'>=':
+                    b_bigger_equals(context);
+                    break;
+                case'<=':
+                    b_smaller_equals(context);
                     break;
             }
         } else if (item.type === TOKENS.IDENTIFIER) {
@@ -355,19 +400,62 @@ function execute(func: n_Function, g_func: n_Function = func) {
                     context.push(g_block.get(name2)!);
 
             }
+        } else if (item.type === TOKENS.IF || item.type === TOKENS.IFF) {
+            let condition = context.pop();
 
+            if (condition)
+                if (condition.value === true) {
+                    let if_fun = new n_Function(func.name);
+                    let if_stack = if_fun.func_stack;
+                    let block_count = 0;
+                    i++;
+                    while ((stack[i].type != TOKENS.ELSE && stack[i].type != TOKENS.END) || block_count != 0) {
+                        if (stack[i].type === TOKENS.IF || stack[i].type === TOKENS.WHILE)
+                            block_count++;
+                        else if (stack[i].type === TOKENS.END)
+                            block_count--;
+                        if_stack.push(stack[i++]);
+                    }
+
+                    i++;
+                    while ((stack[i].type != TOKENS.ELSE && stack[i].type != TOKENS.END) || block_count != 0) {
+                        if (stack[i].type === TOKENS.IF || stack[i].type === TOKENS.WHILE)
+                            block_count++;
+                        else if (stack[i].type === TOKENS.END)
+                            block_count--;
+                        i++;
+                    }
+
+                    execute(if_fun, context_func);
+                } else {
+                    let block_count = 0;
+
+                    i++;
+                    while ((stack[i].type != TOKENS.ELSE && stack[i].type != TOKENS.END) || block_count != 0) {
+                        if (stack[i].type === TOKENS.IF || stack[i].type === TOKENS.WHILE)
+                            block_count++;
+                        else if (stack[i].type === TOKENS.END)
+                            block_count--;
+                        i++;
+                    }
+                }
+            else
+                throw "no condition"
+        } else if (item.type === TOKENS.END) {
+            //DO NOTHING?
         } else
+
             context.push(item);
     }
     /* //TODO this is gc :)
-    if (fname != "_global")
+    if (fname !== "_global")
         m_Block.delete(fname);
         */
 }
 
 // BUILTIN
 function b_print(context: Stack) {
-    const valid = [TOKENS.NUMBER, TOKENS.STRING, TOKENS.INTEGER, TOKENS.FLOAT, TOKENS.DOUBLE];
+    const valid = [TOKENS.NUMBER, TOKENS.BOOLEAN, TOKENS.STRING, TOKENS.INTEGER, TOKENS.FLOAT, TOKENS.DOUBLE];
     let pr = context.pop();
 
     if (pr != undefined) {
@@ -438,6 +526,8 @@ function b_minus(context: Stack) {
         if (valid.includes(first.type) && valid.includes(second.type)) {
             if (typeof first.value == "number" && typeof second.value == "number")
                 context.push({type: first.type, value: first.value - second.value});
+            else
+                throw first.value + " and " + second.value + " is not subtractable";
         } else
             throw first.value + " and " + second.value + " is not subtractable";
     } else
@@ -452,6 +542,8 @@ function b_multiply(context: Stack) {
         if (valid.includes(first.type) && valid.includes(second.type)) {
             if (typeof first.value == "number" && typeof second.value == "number")
                 context.push({type: first.type, value: first.value * second.value});
+            else
+                throw first.value + " and " + second.value + " is not multiply-able";
         } else
             throw first.value + " and " + second.value + " is not multiply-able";
     } else
@@ -466,6 +558,8 @@ function b_divide(context: Stack) {
         if (valid.includes(first.type) && valid.includes(second.type)) {
             if (typeof first.value == "number" && typeof second.value == "number")
                 context.push({type: first.type, value: first.value / second.value});
+            else
+                throw first.value + " and " + second.value + " is not divide-able";
         } else
             throw first.value + " and " + second.value + " is not divide-able";
     } else
@@ -480,6 +574,8 @@ function b_mod(context: Stack) {
         if (valid.includes(first.type) && valid.includes(second.type)) {
             if (typeof first.value == "number" && typeof second.value == "number")
                 context.push({type: first.type, value: first.value % second.value});
+            else
+                throw first.value + " and " + second.value + " is not mod-able";
         } else
             throw first.value + " and " + second.value + " is not mod-able";
     } else
@@ -494,6 +590,8 @@ function b_max(context: Stack) {
         if (valid.includes(first.type) && valid.includes(second.type)) {
             if (typeof first.value == "number" && typeof second.value == "number")
                 context.push({type: first.type, value: first.value > second.value ? first.value : second.value});
+            else
+                throw first.value + " and " + second.value + " is not comparable for max";
         } else
             throw first.value + " and " + second.value + " is not comparable for max";
     } else
@@ -508,10 +606,86 @@ function b_min(context: Stack) {
         if (valid.includes(first.type) && valid.includes(second.type)) {
             if (typeof first.value == "number" && typeof second.value == "number")
                 context.push({type: first.type, value: first.value < second.value ? first.value : second.value});
+            else
+                throw first.value + " and " + second.value + " is not comparable for min";
         } else
             throw first.value + " and " + second.value + " is not comparable for min";
     } else
         throw "no values to do a min comparison";
+}
+
+function b_equals(context: Stack) {
+    let second = context.pop();
+    let first = context.pop();
+    if (first != undefined && second != undefined) {
+        context.push({type: TOKENS.BOOLEAN, value: first.value === second.value});
+    } else
+        throw "no value to compare for equals";
+}
+
+function b_not_equals(context: Stack) {
+    let second = context.pop();
+    let first = context.pop();
+    if (first != undefined && second != undefined) {
+        context.push({type: TOKENS.BOOLEAN, value: first.value !== second.value});
+    } else
+        throw "no value to compare for not equals";
+}
+
+// bigger than >
+function b_bigger(context: Stack) {
+    const valid = [TOKENS.NUMBER, TOKENS.INTEGER, TOKENS.FLOAT, TOKENS.DOUBLE];
+    let second = context.pop();
+    let first = context.pop();
+    if (first != undefined && second != undefined) {
+        if (valid.includes(first.type) && valid.includes(second.type) && typeof first.value == "number" && typeof second.value == "number")
+            context.push({type: TOKENS.BOOLEAN, value: first.value > second.value});
+        else
+            throw first.value + " and " + second.value + " is not comparable for bigger than";
+    } else
+        throw "no value to compare for bigger than";
+}
+
+// smaller than <
+function b_smaller(context: Stack) {
+    const valid = [TOKENS.NUMBER, TOKENS.INTEGER, TOKENS.FLOAT, TOKENS.DOUBLE];
+    let second = context.pop();
+    let first = context.pop();
+    if (first != undefined && second != undefined) {
+        if (valid.includes(first.type) && valid.includes(second.type) && typeof first.value == "number" && typeof second.value == "number")
+            context.push({type: TOKENS.BOOLEAN, value: first.value < second.value});
+        else
+            throw first.value + " and " + second.value + " is not comparable for smaller than";
+    } else
+        throw "no value to compare for smaller than";
+}
+
+// bigger than or equals >=
+function b_bigger_equals(context: Stack) {
+    const valid = [TOKENS.NUMBER, TOKENS.INTEGER, TOKENS.FLOAT, TOKENS.DOUBLE];
+    let second = context.pop();
+    let first = context.pop();
+    if (first != undefined && second != undefined) {
+        if (valid.includes(first.type) && valid.includes(second.type) && typeof first.value == "number" && typeof second.value == "number")
+            context.push({type: TOKENS.BOOLEAN, value: first.value >= second.value});
+        else
+            throw first.value + " and " + second.value + " is not comparable for bigger than or equals";
+    } else
+        throw "no value to compare for bigger than or equals";
+}
+
+// smaller than or equals <=
+function b_smaller_equals(context: Stack) {
+    const valid = [TOKENS.NUMBER, TOKENS.INTEGER, TOKENS.FLOAT, TOKENS.DOUBLE];
+    let second = context.pop();
+    let first = context.pop();
+    if (first != undefined && second != undefined) {
+        if (valid.includes(first.type) && valid.includes(second.type) && typeof first.value == "number" && typeof second.value == "number")
+            context.push({type: TOKENS.BOOLEAN, value: first.value <= second.value});
+        else
+            throw first.value + " and " + second.value + " is not comparable for smaller than or equals";
+    } else
+        throw "no value to compare for smaller than or equals";
 }
 
 //
