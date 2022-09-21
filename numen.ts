@@ -13,6 +13,7 @@ Array.prototype.top = function () {
     return this[this.length - 1];
 }
 
+
 const N_debug = false;
 
 enum TOKENS {
@@ -77,6 +78,8 @@ const Functions = new Map<string, TOKENS>([
     ["max", TOKENS.FUNCTION],
     ["min", TOKENS.FUNCTION],
     ["ret", TOKENS.FUNCTION],
+    ["rot", TOKENS.FUNCTION],
+    ["carry", TOKENS.FUNCTION], // x y carry => x y x
 ]);
 
 //builtin types
@@ -360,6 +363,12 @@ function execute(func: n_Function, g_func: n_Function = func) {
                 case'copy':
                     b_copy(context);
                     break;
+                case'carry':
+                    b_carry(context);
+                    break;
+                case'rot':
+                    b_rot(context);
+                    break;
                 case'max':
                     b_max(context);
                     break;
@@ -483,6 +492,26 @@ function b_copy(f_context: Stack) {
         f_context.push(last);
     } else
         throw "no value to copy";
+}
+
+function b_rot(f_context: Stack) {
+    let third = f_context.pop();
+    let second = f_context.pop();
+    let first = f_context.pop();
+    if (first && second && third) {
+        f_context.push(third, first, second);
+    } else
+        throw "no values to rotate";
+}
+
+//copies the item before last item in stack
+function b_carry(f_context: Stack) {
+    let one_before_last = f_context[f_context.length - 2];
+
+    if (one_before_last != undefined) {
+        f_context.push(one_before_last);
+    } else
+        throw "no value to carry";
 }
 
 function b_drop(f_context: Stack) {
