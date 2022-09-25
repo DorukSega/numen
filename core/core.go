@@ -75,7 +75,6 @@ type Heap map[string]Token
 type Block struct {
 	Name       string
 	Stack      Stack
-	Heap       Heap
 	Parameters Stack
 }
 
@@ -119,8 +118,8 @@ func EndsWithStringQuote(str string) int {
 	return 0
 }
 
-func MapGetValue[K comparable, V comparable](m map[K]V, key K) (V, bool) {
-	for Key, Value := range m {
+func MapGetValue[K comparable, V comparable](m *map[K]V, key K) (V, bool) {
+	for Key, Value := range *m {
 		if Key == key {
 			return Value, true
 		}
@@ -128,8 +127,8 @@ func MapGetValue[K comparable, V comparable](m map[K]V, key K) (V, bool) {
 	return *new(V), false
 }
 
-func HeapGetValue(m Heap, key string) (Token, bool) {
-	for Key, Value := range m {
+func HeapGetValue(m *Heap, key string) (Token, bool) {
+	for Key, Value := range *m {
 		if Key == key {
 			return Value, true
 		}
@@ -137,8 +136,8 @@ func HeapGetValue(m Heap, key string) (Token, bool) {
 	return *new(Token), false
 }
 
-func MapGetKey[K comparable, V comparable](m map[K]V, value V) (K, bool) {
-	for Key, Value := range m {
+func MapGetKey[K comparable, V comparable](m *map[K]V, value V) (K, bool) {
+	for Key, Value := range *m {
 		if Value == value {
 			return Key, true
 		}
@@ -146,17 +145,24 @@ func MapGetKey[K comparable, V comparable](m map[K]V, value V) (K, bool) {
 	return *new(K), false
 }
 
-func MapContainsValue[K comparable, V comparable](m map[K]V, value V) bool {
-	for _, Value := range m {
+func MapContainsValue[K comparable, V comparable](m *map[K]V, value V) bool {
+	for _, Value := range *m {
 		if Value == value {
 			return true
 		}
 	}
 	return false
 }
-
-func MapContainsKey[K comparable, V comparable](m map[K]V, key K) bool {
-	for Key, _ := range m {
+func FileBlockMapContainsKey(m *FileBlockMap, key string) bool {
+	for Key, _ := range *m {
+		if Key == key {
+			return true
+		}
+	}
+	return false
+}
+func MapContainsKey[K comparable, V comparable](m *map[K]V, key K) bool {
+	for Key, _ := range *m {
 		if Key == key {
 			return true
 		}
@@ -164,8 +170,8 @@ func MapContainsKey[K comparable, V comparable](m map[K]V, key K) bool {
 	return false
 }
 
-func ArrayContains[K comparable](a []K, value K) bool {
-	for _, Value := range a {
+func ArrayContains[K comparable](a *[]K, value K) bool {
+	for _, Value := range *a {
 		if Value == value {
 			return true
 		}
@@ -213,7 +219,7 @@ func SafePop(stack *Stack, functionName string) Token {
 func Bprint(stack *Stack) {
 	valid := []enums.TokenIDs{enums.INT, enums.BOOL, enums.STRING, enums.FLOAT}
 	item := SafePop(stack, "print")
-	if ArrayContains(valid, item.Id) {
+	if ArrayContains(&valid, item.Id) {
 		fmt.Printf("%v\n", item.Value) //TODO no new line?
 	} else {
 		log.Fatalf("%v is not printable", item)
@@ -221,7 +227,9 @@ func Bprint(stack *Stack) {
 }
 
 func Bret(stack *Stack, parentStack *Stack) {
-	Push(parentStack, SafePop(stack, "ret"))
+	popped := SafePop(stack, "ret")
+	Push(parentStack, popped)
+	//fmt.Printf("returned %v\n", popped)
 }
 
 func Any2Conv[T any](x any, y any) (T, T, bool) {
@@ -234,7 +242,7 @@ func Bplus(stack *Stack) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT, enums.STRING}
 	second := SafePop(stack, "+")
 	first := SafePop(stack, "+")
-	if ArrayContains(valid, second.Id) && ArrayContains(valid, first.Id) {
+	if ArrayContains(&valid, second.Id) && ArrayContains(&valid, first.Id) {
 		if s, f, ok := Any2Conv[int](second.Value, first.Value); ok {
 			Push(stack, Token{Value: f + s, Id: enums.INT})
 		} else if s, f, ok := Any2Conv[float64](second.Value, first.Value); ok {
@@ -260,7 +268,7 @@ func Bminus(stack *Stack) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "-")
 	first := SafePop(stack, "-")
-	if ArrayContains(valid, second.Id) && ArrayContains(valid, first.Id) {
+	if ArrayContains(&valid, second.Id) && ArrayContains(&valid, first.Id) {
 		if s, f, ok := Any2Conv[int](second.Value, first.Value); ok {
 			Push(stack, Token{Value: f - s, Id: enums.INT})
 		} else if s, f, ok := Any2Conv[float64](second.Value, first.Value); ok {
@@ -283,7 +291,7 @@ func Bmultiply(stack *Stack) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "*")
 	first := SafePop(stack, "*")
-	if ArrayContains(valid, second.Id) && ArrayContains(valid, first.Id) {
+	if ArrayContains(&valid, second.Id) && ArrayContains(&valid, first.Id) {
 		if s, f, ok := Any2Conv[int](second.Value, first.Value); ok {
 			Push(stack, Token{Value: f * s, Id: enums.INT})
 		} else if s, f, ok := Any2Conv[float64](second.Value, first.Value); ok {
@@ -306,7 +314,7 @@ func Bdivide(stack *Stack) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "/")
 	first := SafePop(stack, "/")
-	if ArrayContains(valid, second.Id) && ArrayContains(valid, first.Id) {
+	if ArrayContains(&valid, second.Id) && ArrayContains(&valid, first.Id) {
 		if s, f, ok := Any2Conv[int](second.Value, first.Value); ok {
 			Push(stack, Token{Value: f / s, Id: enums.INT})
 		} else if s, f, ok := Any2Conv[float64](second.Value, first.Value); ok {
@@ -329,7 +337,7 @@ func Bmod(stack *Stack) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "%")
 	first := SafePop(stack, "%")
-	if ArrayContains(valid, second.Id) && ArrayContains(valid, first.Id) {
+	if ArrayContains(&valid, second.Id) && ArrayContains(&valid, first.Id) {
 		if s, f, ok := Any2Conv[int](second.Value, first.Value); ok {
 			Push(stack, Token{Value: f / s, Id: enums.INT})
 		} else if s, f, ok := Any2Conv[float64](second.Value, first.Value); ok {
@@ -359,13 +367,13 @@ func Bis(stack *Stack) { // is type
 	first := SafePop(stack, "is")
 
 	s, f, _ := Any2Conv[string](second.Value, first.Value)
-	if typ, ok := MapGetKey(NTypeTokenMap, s); ok {
+	if typ, ok := MapGetKey(&NTypeTokenMap, s); ok {
 		if NTypeMap[typ] == first.Id {
 			Push(stack, Token{Id: enums.BOOL, Value: true})
 		} else {
 			Push(stack, Token{Id: enums.BOOL, Value: false})
 		}
-	} else if typ, ok := MapGetKey(NTypeTokenMap, f); ok {
+	} else if typ, ok := MapGetKey(&NTypeTokenMap, f); ok {
 		if NTypeMap[typ] == second.Id {
 			Push(stack, Token{Id: enums.BOOL, Value: true})
 		} else {
@@ -403,7 +411,7 @@ func Bmax(stack *Stack) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "max")
 	first := SafePop(stack, "max")
-	if ArrayContains(valid, second.Id) && ArrayContains(valid, first.Id) {
+	if ArrayContains(&valid, second.Id) && ArrayContains(&valid, first.Id) {
 		if s, f, ok := Any2Conv[int](second.Value, first.Value); ok {
 			Push(stack, Token{Value: NumMax(f, s), Id: enums.INT})
 		} else if s, f, ok := Any2Conv[float64](second.Value, first.Value); ok {
@@ -433,7 +441,7 @@ func Bmin(stack *Stack) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "min")
 	first := SafePop(stack, "min")
-	if ArrayContains(valid, second.Id) && ArrayContains(valid, first.Id) {
+	if ArrayContains(&valid, second.Id) && ArrayContains(&valid, first.Id) {
 		if s, f, ok := Any2Conv[int](second.Value, first.Value); ok {
 			Push(stack, Token{Value: NumMin(f, s), Id: enums.INT})
 		} else if s, f, ok := Any2Conv[float64](second.Value, first.Value); ok {
@@ -473,7 +481,7 @@ func Bbigger(stack *Stack) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, ">")
 	first := SafePop(stack, ">")
-	if ArrayContains(valid, second.Id) && ArrayContains(valid, first.Id) {
+	if ArrayContains(&valid, second.Id) && ArrayContains(&valid, first.Id) {
 		if s, f, ok := Any2Conv[int](second.Value, first.Value); ok {
 			Push(stack, Token{Value: f > s, Id: enums.BOOL})
 		} else if s, f, ok := Any2Conv[float64](second.Value, first.Value); ok {
@@ -496,7 +504,7 @@ func Bsmaller(stack *Stack) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "<")
 	first := SafePop(stack, "<")
-	if ArrayContains(valid, second.Id) && ArrayContains(valid, first.Id) {
+	if ArrayContains(&valid, second.Id) && ArrayContains(&valid, first.Id) {
 		if s, f, ok := Any2Conv[int](second.Value, first.Value); ok {
 			Push(stack, Token{Value: f < s, Id: enums.BOOL})
 		} else if s, f, ok := Any2Conv[float64](second.Value, first.Value); ok {
@@ -519,7 +527,7 @@ func Bbiggerequals(stack *Stack) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, ">=")
 	first := SafePop(stack, ">=")
-	if ArrayContains(valid, second.Id) && ArrayContains(valid, first.Id) {
+	if ArrayContains(&valid, second.Id) && ArrayContains(&valid, first.Id) {
 		if s, f, ok := Any2Conv[int](second.Value, first.Value); ok {
 			Push(stack, Token{Value: f >= s, Id: enums.BOOL})
 		} else if s, f, ok := Any2Conv[float64](second.Value, first.Value); ok {
@@ -542,7 +550,7 @@ func Bsmallerequals(stack *Stack) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "<=")
 	first := SafePop(stack, "<=")
-	if ArrayContains(valid, second.Id) && ArrayContains(valid, first.Id) {
+	if ArrayContains(&valid, second.Id) && ArrayContains(&valid, first.Id) {
 		if s, f, ok := Any2Conv[int](second.Value, first.Value); ok {
 			Push(stack, Token{Value: f <= s, Id: enums.BOOL})
 		} else if s, f, ok := Any2Conv[float64](second.Value, first.Value); ok {
