@@ -17,7 +17,7 @@ Array.prototype.top = function () {
 const N_debug = false;
 
 enum TOKENS {
-    FUNCTION, // BUILTIN FUNCTION
+    FUNCTION = 1, // BUILTIN FUNCTION
     NUMBER, // JS Number
     INTEGER, // Integer
     FLOAT, // Float
@@ -107,11 +107,12 @@ class n_Function {
     func_stack: Stack;
     name: string;
 
-    constructor(name: string) {
+    constructor(name: string, f_stack: Stack = new Array<Token>()) {
         this.params = new Array<Token>();
-        this.func_stack = new Array<Token>();
+        this.func_stack = f_stack;
         this.name = name;
     }
+
 }
 
 // Stack Map
@@ -157,7 +158,7 @@ function parseWord(word: string): Token {
             type: Array.from(Keywords)[Array.from(Keywords.values()).indexOf(word)][0],
             value: word
         };
-    } else if (Types.has(word)) {
+    }else if (Types.has(word)) {
         return {
             type: Types.get(word)!,
             value: word
@@ -414,7 +415,7 @@ function execute(func: n_Function, g_func: n_Function = func) {
 
             if (condition)
                 if (condition.value === true) {
-                    let if_fun = new n_Function(func.name);
+                    let if_fun = new n_Function(func.name, structuredClone(context));
                     let if_stack = if_fun.func_stack;
                     let block_count = 0;
                     i++;
@@ -425,8 +426,6 @@ function execute(func: n_Function, g_func: n_Function = func) {
                             block_count--;
                         if_stack.push(stack[i++]);
                     }
-
-                    i++;
                     while ((stack[i].type != TOKENS.ELSE && stack[i].type != TOKENS.END) || block_count != 0) {
                         if (stack[i].type === TOKENS.IF || stack[i].type === TOKENS.WHILE)
                             block_count++;
@@ -434,12 +433,16 @@ function execute(func: n_Function, g_func: n_Function = func) {
                             block_count--;
                         i++;
                     }
+                    console.log(if_fun.func_stack)
+                    execute(if_fun, g_func);
 
-                    execute(if_fun, context_func);
                 } else {
+                    let els_fun = new n_Function(func.name, structuredClone(context));
+                    let els_stack = els_fun.func_stack;
                     let block_count = 0;
 
                     i++;
+
                     while ((stack[i].type != TOKENS.ELSE && stack[i].type != TOKENS.END) || block_count != 0) {
                         if (stack[i].type === TOKENS.IF || stack[i].type === TOKENS.WHILE)
                             block_count++;
@@ -447,19 +450,28 @@ function execute(func: n_Function, g_func: n_Function = func) {
                             block_count--;
                         i++;
                     }
+
+                    while ((stack[i].type != TOKENS.ELSE && stack[i].type != TOKENS.END) || block_count != 0) {
+                        if (stack[i].type === TOKENS.IF || stack[i].type === TOKENS.WHILE)
+                            block_count++;
+                        else if (stack[i].type === TOKENS.END)
+                            block_count--;
+                        els_stack.push(stack[i++]);
+                    }
+
+                    console.log(els_fun.func_stack)
+                    execute(els_fun, g_func);
                 }
             else
                 throw "no condition"
-        } else if (item.type === TOKENS.END) {
-            //DO NOTHING?
         } else
-
             context.push(item);
     }
     /* //TODO this is gc :)
     if (fname !== "_global")
         m_Block.delete(fname);
         */
+
 }
 
 // BUILTIN
@@ -499,7 +511,7 @@ function b_rot(f_context: Stack) {
     let second = f_context.pop();
     let first = f_context.pop();
     if (first && second && third) {
-        f_context.push(third, first, second);
+        f_context.push(first, third, second);
     } else
         throw "no values to rotate";
 }

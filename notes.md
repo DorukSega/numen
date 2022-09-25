@@ -7,7 +7,7 @@ boolean type
 
 if else syntax
 : maybe this?
-: figure out how to parse end with function ends
+: figure out how to parse `end` with function ends
 
      <cond> if
      <exec>
