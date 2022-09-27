@@ -15,17 +15,10 @@ const (
 	WHILE
 	DO
 	AS
-	LET  // type infereance
-	TINT // type declarations
-	TINT8
-	TINT16
-	TINT32
-	TINT64
-	TFLOAT32
-	TFLOAT64
-	TFLOAT
-	TSTRING
-	TBOOLEAN
+	ASSINGMENT
+	VAR // type infereance
+	LET
+	TYPE
 	TFUNCTION
 	IDENTIFIER
 )

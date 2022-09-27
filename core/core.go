@@ -10,29 +10,24 @@ import (
 )
 
 var TokenIdMap = map[enums.TokenIDs]string{
-	enums.END:       "end",
-	enums.IF:        "if",
-	enums.IFF:       "iff",
-	enums.ELSE:      "else",
-	enums.WHILE:     "while",
-	enums.DO:        "do",
-	enums.TFUNCTION: "fun",
-	enums.AS:        "as",
-	enums.LET:       "let",
+	enums.END:        "end",
+	enums.IF:         "if",
+	enums.IFF:        "iff",
+	enums.ELSE:       "else",
+	enums.WHILE:      "while",
+	enums.DO:         "do",
+	enums.TFUNCTION:  "fun",
+	enums.AS:         "as",
+	enums.VAR:        "var",
+	enums.LET:        "let",
+	enums.ASSINGMENT: "=",
 }
 
-var NTypeTokenMap = map[enums.TokenIDs]string{
-	enums.TINT:     "int",
-	enums.TFLOAT:   "float",
-	enums.TSTRING:  "string",
-	enums.TBOOLEAN: "bool",
-}
-
-var NTypeMap = map[enums.TokenIDs]enums.TokenIDs{ // which type takes what
-	enums.TINT:     enums.INT,
-	enums.TFLOAT:   enums.FLOAT,
-	enums.TSTRING:  enums.STRING,
-	enums.TBOOLEAN: enums.BOOL,
+var NTypeMap = map[string]enums.TokenIDs{ // which type takes what
+	"int":    enums.INT,
+	"float":  enums.FLOAT,
+	"string": enums.STRING,
+	"bool":   enums.BOOL,
 }
 
 var BuiltinFunctions = []string{
@@ -59,9 +54,10 @@ var BuiltinFunctions = []string{
 	"is",
 }
 
-var BlockMakers = []enums.TokenIDs{ // keywords that create new blocks
+var BlockDeclerations = []enums.TokenIDs{ // keywords that create new blocks
 	enums.IF,
 	enums.WHILE,
+	enums.LET,
 }
 
 type Token struct { // token to hold parsed info
@@ -69,27 +65,26 @@ type Token struct { // token to hold parsed info
 	Value any
 }
 
-type Stack []Token
 type Heap map[string]Token
 
 type Block struct {
 	Name       string
-	Stack      Stack
-	Parameters Stack
+	Stack      []Token
+	Parameters []Token
 }
 
 type FileBlockMap map[string]*Block
 
-func SwapLast(h *Stack) {
+func SwapLast(h *[]Token) {
 	i, j := len(*h)-1, len(*h)-2
 	(*h)[i], (*h)[j] = (*h)[j], (*h)[i]
 }
 
-func Push(h *Stack, item ...Token) {
+func Push(h *[]Token, item ...Token) {
 	*h = append(*h, item...)
 }
 
-func Pop(h *Stack) (Token, error) {
+func Pop(h *[]Token) (Token, error) {
 	old := *h
 	n := len(old)
 	if n == 0 {
@@ -144,6 +139,14 @@ func MapGetKey[K comparable, V comparable](m *map[K]V, value V) (K, bool) {
 	}
 	return *new(K), false
 }
+func HeapContainsKey(m *Heap, key string) bool {
+	for Key, _ := range *m {
+		if Key == key {
+			return true
+		}
+	}
+	return false
+}
 
 func MapContainsValue[K comparable, V comparable](m *map[K]V, value V) bool {
 	for _, Value := range *m {
@@ -179,20 +182,20 @@ func ArrayContains[K comparable](a *[]K, value K) bool {
 	return false
 }
 
-func StackReverse(a *Stack) {
+func StackReverse(a *[]Token) {
 	for i, j := 0, len(*a)-1; i < j; i, j = i+1, j-1 {
 		(*a)[i], (*a)[j] = (*a)[j], (*a)[i]
 	}
 }
 
-func StackReversRet(a Stack) Stack {
+func StackReversRet(a []Token) []Token {
 	for i, j := 0, len(a)-1; i < j; i, j = i+1, j-1 {
 		a[i], a[j] = a[j], a[i]
 	}
 	return a
 }
 
-func SafeTop(h Stack, functionName string) Token {
+func SafeTop(h []Token, functionName string) Token {
 	n := len(h)
 	if n == 0 {
 		log.Fatalf("Failed to get top of stack in %v", functionName)
@@ -200,7 +203,7 @@ func SafeTop(h Stack, functionName string) Token {
 	return h[len(h)-1]
 }
 
-func SafeAt(h Stack, at int, functionName string) Token {
+func SafeAt(h []Token, at int, functionName string) Token {
 	n := len(h)
 	if n-1 < at || at < 0 {
 		log.Fatalf("Failed to get stack[%v] in %v", at, functionName)
@@ -208,7 +211,7 @@ func SafeAt(h Stack, at int, functionName string) Token {
 	return h[at]
 }
 
-func SafePop(stack *Stack, functionName string) Token {
+func SafePop(stack *[]Token, functionName string) Token {
 	item, err := Pop(stack)
 	if err != nil {
 		log.Fatalf("Failed to pop from stack because %v\nAt %v", err, functionName)
@@ -216,7 +219,7 @@ func SafePop(stack *Stack, functionName string) Token {
 	return item
 }
 
-func Bprint(stack *Stack) {
+func Bprint(stack *[]Token) {
 	valid := []enums.TokenIDs{enums.INT, enums.BOOL, enums.STRING, enums.FLOAT}
 	item := SafePop(stack, "print")
 	if ArrayContains(&valid, item.Id) {
@@ -226,7 +229,7 @@ func Bprint(stack *Stack) {
 	}
 }
 
-func Bret(stack *Stack, parentStack *Stack) {
+func Bret(stack *[]Token, parentStack *[]Token) {
 	popped := SafePop(stack, "ret")
 	Push(parentStack, popped)
 	//fmt.Printf("returned %v\n", popped)
@@ -238,7 +241,7 @@ func Any2Conv[T any](x any, y any) (T, T, bool) {
 	return a, b, ok1 && ok2
 }
 
-func Bplus(stack *Stack) {
+func Bplus(stack *[]Token) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT, enums.STRING}
 	second := SafePop(stack, "+")
 	first := SafePop(stack, "+")
@@ -264,7 +267,7 @@ func Bplus(stack *Stack) {
 	}
 }
 
-func Bminus(stack *Stack) {
+func Bminus(stack *[]Token) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "-")
 	first := SafePop(stack, "-")
@@ -287,7 +290,7 @@ func Bminus(stack *Stack) {
 	}
 }
 
-func Bmultiply(stack *Stack) {
+func Bmultiply(stack *[]Token) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "*")
 	first := SafePop(stack, "*")
@@ -310,7 +313,7 @@ func Bmultiply(stack *Stack) {
 	}
 }
 
-func Bdivide(stack *Stack) {
+func Bdivide(stack *[]Token) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "/")
 	first := SafePop(stack, "/")
@@ -333,7 +336,7 @@ func Bdivide(stack *Stack) {
 	}
 }
 
-func Bmod(stack *Stack) {
+func Bmod(stack *[]Token) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "%")
 	first := SafePop(stack, "%")
@@ -356,25 +359,18 @@ func Bmod(stack *Stack) {
 	}
 }
 
-func Bswap(stack *Stack) {
+func Bswap(stack *[]Token) {
 	second := SafePop(stack, "swap")
 	first := SafePop(stack, "swap")
 	Push(stack, second, first)
 }
 
-func Bis(stack *Stack) { // is type
+func Bis(stack *[]Token) { // is type
 	second := SafePop(stack, "is")
 	first := SafePop(stack, "is")
 
-	s, f, _ := Any2Conv[string](second.Value, first.Value)
-	if typ, ok := MapGetKey(&NTypeTokenMap, s); ok {
+	if typ, ok := second.Value.(string); second.Id == enums.TYPE && ok {
 		if NTypeMap[typ] == first.Id {
-			Push(stack, Token{Id: enums.BOOL, Value: true})
-		} else {
-			Push(stack, Token{Id: enums.BOOL, Value: false})
-		}
-	} else if typ, ok := MapGetKey(&NTypeTokenMap, f); ok {
-		if NTypeMap[typ] == second.Id {
 			Push(stack, Token{Id: enums.BOOL, Value: true})
 		} else {
 			Push(stack, Token{Id: enums.BOOL, Value: false})
@@ -384,18 +380,18 @@ func Bis(stack *Stack) { // is type
 	}
 }
 
-func Brot(stack *Stack) {
+func Brot(stack *[]Token) {
 	third := SafePop(stack, "swap")
 	second := SafePop(stack, "swap")
 	first := SafePop(stack, "swap")
 	Push(stack, first, third, second)
 }
 
-func Bdrop(stack *Stack) {
+func Bdrop(stack *[]Token) {
 	SafePop(stack, "drop")
 }
 
-func Bcopy(stack *Stack) {
+func Bcopy(stack *[]Token) {
 	top := SafeTop(*stack, "copy")
 	Push(stack, top)
 }
@@ -407,7 +403,7 @@ func NumMax[T int | float64](x, y T) T {
 	return y
 }
 
-func Bmax(stack *Stack) {
+func Bmax(stack *[]Token) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "max")
 	first := SafePop(stack, "max")
@@ -437,7 +433,7 @@ func NumMin[T int | float64](x, y T) T {
 	return y
 }
 
-func Bmin(stack *Stack) {
+func Bmin(stack *[]Token) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "min")
 	first := SafePop(stack, "min")
@@ -460,24 +456,24 @@ func Bmin(stack *Stack) {
 	}
 }
 
-func Bcarry(stack *Stack) {
+func Bcarry(stack *[]Token) {
 	tsec := SafeAt(*stack, len(*stack)-2, "carry")
 	Push(stack, tsec)
 }
 
-func Bequals(stack *Stack) {
+func Bequals(stack *[]Token) {
 	second := SafePop(stack, "equals")
 	first := SafePop(stack, "equals")
 	Push(stack, Token{Id: enums.BOOL, Value: first.Value == second.Value})
 }
 
-func Bnotequals(stack *Stack) {
+func Bnotequals(stack *[]Token) {
 	second := SafePop(stack, "not equals")
 	first := SafePop(stack, "not equals")
 	Push(stack, Token{Id: enums.BOOL, Value: first.Value != second.Value})
 }
 
-func Bbigger(stack *Stack) {
+func Bbigger(stack *[]Token) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, ">")
 	first := SafePop(stack, ">")
@@ -500,7 +496,7 @@ func Bbigger(stack *Stack) {
 	}
 }
 
-func Bsmaller(stack *Stack) {
+func Bsmaller(stack *[]Token) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "<")
 	first := SafePop(stack, "<")
@@ -523,7 +519,7 @@ func Bsmaller(stack *Stack) {
 	}
 }
 
-func Bbiggerequals(stack *Stack) {
+func Bbiggerequals(stack *[]Token) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, ">=")
 	first := SafePop(stack, ">=")
@@ -546,7 +542,7 @@ func Bbiggerequals(stack *Stack) {
 	}
 }
 
-func Bsmallerequals(stack *Stack) {
+func Bsmallerequals(stack *[]Token) {
 	valid := []enums.TokenIDs{enums.INT, enums.FLOAT}
 	second := SafePop(stack, "<=")
 	first := SafePop(stack, "<=")

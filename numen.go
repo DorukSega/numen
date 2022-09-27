@@ -61,7 +61,7 @@ func parseFile(file *os.File) *FileBlockMap {
 
 func parseBlock(scanner *bufio.Scanner, mainBlockName string, fileBlockMap *FileBlockMap) {
 	if (*fileBlockMap)[mainBlockName] == nil {
-		(*fileBlockMap)[mainBlockName] = &Block{Name: mainBlockName, Stack: Stack{}, Parameters: Stack{}} //init
+		(*fileBlockMap)[mainBlockName] = &Block{Name: mainBlockName, Stack: []Token{}, Parameters: []Token{}} //init
 	}
 
 	mainBlock := (*fileBlockMap)[mainBlockName]
@@ -87,13 +87,13 @@ func parseBlock(scanner *bufio.Scanner, mainBlockName string, fileBlockMap *File
 
 			var funwords string
 
-			(*fileBlockMap)[fname] = &Block{Name: fname, Stack: Stack{}, Parameters: Stack{}}
+			(*fileBlockMap)[fname] = &Block{Name: fname, Stack: []Token{}, Parameters: []Token{}}
 			funcBlock := (*fileBlockMap)[fname]
 
 			// gets parameters
 			scanner.Scan() //function name
 			for prName := scanner.Text(); prName != TokenIdMap[enums.AS]; _, prName = scanner.Scan(), scanner.Text() {
-				if prType, isType := MapGetKey(&NTypeTokenMap, prName); isType {
+				if prType, isType := MapGetValue(&NTypeMap, prName); isType {
 					Push(&funcBlock.Parameters, Token{Id: prType, Value: prName})
 				} else { // is variable
 					Push(&funcBlock.Parameters, Token{Id: enums.IDENTIFIER, Value: prName})
@@ -104,7 +104,8 @@ func parseBlock(scanner *bufio.Scanner, mainBlockName string, fileBlockMap *File
 
 			blockCount := 0
 			for tok := scanner.Text(); tok != TokenIdMap[enums.END] || blockCount != 0; _, tok = scanner.Scan(), scanner.Text() {
-				if tok == TokenIdMap[enums.IF] || tok == TokenIdMap[enums.WHILE] {
+				k, _ := MapGetKey(&TokenIdMap, tok)
+				if ArrayContains(&BlockDeclerations, k) {
 					blockCount++
 				} else if tok == TokenIdMap[enums.END] {
 					blockCount--
@@ -125,10 +126,10 @@ func parseBlock(scanner *bufio.Scanner, mainBlockName string, fileBlockMap *File
 				Value: word,
 				Id:    key,
 			})
-		} else if key, ok := MapGetKey(&NTypeTokenMap, word); ok {
+		} else if MapContainsKey(&NTypeMap, word) {
 			Push(&(*mainBlock).Stack, Token{
 				Value: word,
-				Id:    key,
+				Id:    enums.TYPE,
 			})
 		} else if conv, err := strconv.Atoi(word); err == nil {
 			Push(&(*mainBlock).Stack, Token{
@@ -156,53 +157,53 @@ func parseBlock(scanner *bufio.Scanner, mainBlockName string, fileBlockMap *File
 
 // interprets main and global
 func interpretGlobal(fileBlockMap *FileBlockMap) {
-	fakePStack := &Stack{}
-	globalHeap := &Heap{}
-	interpret(fileBlockMap, global, global, fakePStack, globalHeap)
-	interpret(fileBlockMap, "main", global, fakePStack, globalHeap)
+	fakePStack := &[]Token{}
+	interpret(fileBlockMap, global, fakePStack)
+	interpret(fileBlockMap, "main", fakePStack)
 	if len(*fakePStack) != 0 {
 		log.Fatal("it is not posible to return from Global or Main")
 	}
 	fakePStack = nil
-	globalHeap = nil
 }
 
-func interpret(fileBlockMap *FileBlockMap, functionName string, parentBlockName string, parentContextStack *Stack, globalHeap *Heap) {
-	functionBlock, parentBlock := (*fileBlockMap)[functionName], (*fileBlockMap)[parentBlockName]
+func interpret(fileBlockMap *FileBlockMap, functionName string, parentContextStack *[]Token) {
+	functionBlock := (*fileBlockMap)[functionName]
 	functionHeap := Heap{}
 	//evaluate function parameters
-	interpretedStack := &Stack{} // context is used as live stack
+	interpretedStack := &[]Token{} // context is used as live stack
 	for _, par := range StackReversRet(functionBlock.Parameters) {
-		if MapContainsKey(&NTypeTokenMap, par.Id) {
+		if par.Id == enums.TYPE {
 			popped, err := Pop(parentContextStack)
 			if err != nil {
-				log.Fatalf("No stack items to get from %v because %v", parentBlockName, err)
+				log.Fatalf("No stack items to get from parent because %v", err)
 			}
-			if popped.Id == NTypeMap[par.Id] {
+			if prval, ok := par.Value.(string); popped.Id == NTypeMap[prval] && ok {
 				Push(interpretedStack, popped)
 			} else {
-				log.Fatalf("parameter's type (%v) that it refers to (%v) and popped item's type (%v) does not match", par.Id, NTypeMap[par.Id], popped.Id)
+				log.Fatalf("parameter's type (%v) that it refers to (%v) and popped item's type (%v) does not match", par.Id, NTypeMap[prval], popped.Id)
 			}
 		} else if par.Id == enums.IDENTIFIER {
 			popped, err := Pop(parentContextStack)
 			if err != nil {
-				log.Fatalf("No stack items to get from %v because %v", parentBlockName, err)
+				log.Fatalf("No stack items to get from parent because %v", err)
 			}
 			functionHeap[par.Value.(string)] = popped // inserts to Heap
 		}
 	}
-
 	StackReverse(interpretedStack)
 	*interpretedStack = append(*interpretedStack, (*functionBlock).Stack...)
-	interpretStack(fileBlockMap, functionBlock, parentBlock, interpretedStack, parentContextStack, functionHeap, globalHeap)
+
+	interpretStack(fileBlockMap, *interpretedStack, parentContextStack, &functionHeap)
 	interpretedStack = nil
 	functionHeap = nil
 }
 
-func interpretStack(fileBlockMap *FileBlockMap, functionBlock *Block, parentBlock *Block, interpretedStack *Stack, parentContextStack *Stack, functionHeap Heap, globalHeap *Heap) {
-	context := &Stack{}
-	for i := 0; i < len(*interpretedStack); i++ {
-		item := (*interpretedStack)[i]
+func interpretStack(fileBlockMap *FileBlockMap, parsedStack []Token, parentContextStack *[]Token, functionHeap *Heap) []Token {
+	context := &[]Token{}
+
+	for i := 0; i < len(parsedStack); i++ {
+		item := parsedStack[i]
+
 		if item.Id == enums.FUNCTION { // builtin function
 			switch item.Value.(string) {
 			case "print":
@@ -249,110 +250,158 @@ func interpretStack(fileBlockMap *FileBlockMap, functionBlock *Block, parentBloc
 				Bis(context)
 			}
 		} else if item.Id == enums.LET {
-			identifier := SafePop(context, "let")
-			identity, ok := identifier.Value.(string)
-			if !ok {
-				log.Fatalf("%v is not a identifier in let", identifier)
+			var BlockStack []Token
+			var LetHeap *Heap
+			*LetHeap = *functionHeap
+			blockCount := 0
+
+			i++ // skip first
+			//evaluate function parameters
+			var tempStack []Token
+			letitem := parsedStack[i]
+			for letitem.Id != enums.AS {
+				Push(&tempStack, letitem)
+				i++
+				letitem = parsedStack[i]
 			}
-			value := SafePop(context, "let")
-			functionHeap[identity] = value
-		} else if MapContainsKey(&NTypeTokenMap, item.Id) {
-			identifier := SafePop(context, "decleration")
-			identity, ok := identifier.Value.(string)
-			if !ok {
-				log.Fatalf("%v is not a identifier in type decleration", identifier)
+			i++ // AS
+			letitem = parsedStack[i]
+			for _, par := range StackReversRet(tempStack) {
+				if par.Id == enums.TYPE {
+					popped := SafePop(context, "let")
+					if prval, ok := par.Value.(string); popped.Id == NTypeMap[prval] && ok {
+						Push(&BlockStack, popped)
+					} else {
+						log.Fatalf("parameter's type (%v) that it refers to (%v) and popped item's type (%v) does not match", par.Id, NTypeMap[prval], popped.Id)
+					}
+				} else if par.Id == enums.IDENTIFIER {
+					popped := SafePop(context, "let")
+					(*LetHeap)[par.Value.(string)] = popped // inserts to Heap
+				}
 			}
-			value := SafePop(context, "decleration")
-			if NTypeMap[item.Id] != value.Id {
-				log.Fatalf("Type Declaration's %v target type doesn't match %v value's type", NTypeMap[item.Id], value.Id)
+			for (letitem.Id != enums.END) || blockCount != 0 {
+				if ArrayContains(&BlockDeclerations, letitem.Id) {
+					blockCount++
+				} else if letitem.Id == enums.END {
+					blockCount--
+				}
+				Push(&BlockStack, letitem)
+				i++
+				letitem = parsedStack[i]
 			}
-			functionHeap[identity] = value
+			result := interpretStack(fileBlockMap, BlockStack, parentContextStack, LetHeap)
+			*context = append(*context, result...)
+		} else if item.Id == enums.WHILE {
+			var BlockStack []Token
+			var CondStack []Token
+			blockCount := 0
+			i++ // skip first
+			whlitem := parsedStack[i]
+			for whlitem.Id != enums.DO {
+				Push(&CondStack, whlitem)
+				i++
+				whlitem = parsedStack[i]
+			}
+			i++
+			whlitem = parsedStack[i]
+			for (whlitem.Id != enums.END) || blockCount != 0 {
+				if ArrayContains(&BlockDeclerations, whlitem.Id) {
+					blockCount++
+				} else if whlitem.Id == enums.END {
+					blockCount--
+				}
+				Push(&BlockStack, whlitem)
+				i++
+				whlitem = parsedStack[i]
+			}
+			var WhileHeap *Heap
+			*WhileHeap = *functionHeap
+			condres := interpretStack(fileBlockMap, CondStack, parentContextStack, WhileHeap)
+			condition := SafePop(&condres, "while")
+			var parsedCondition, ok = condition.Value.(bool)
+
+			for ok && parsedCondition {
+				result := interpretStack(fileBlockMap, BlockStack, parentContextStack, WhileHeap)
+				*context = append(*context, result...)
+				//next
+				nres := interpretStack(fileBlockMap, CondStack, parentContextStack, WhileHeap)
+				ncond := SafePop(&nres, "while")
+				parsedCondition, ok = ncond.Value.(bool)
+			}
 		} else if item.Id == enums.IF || item.Id == enums.IFF {
+			var BlockStack []Token
+			blockCount := 0
+			i++ // skip first
 			condition := SafePop(context, "if")
 			if parsedCondition, ok := condition.Value.(bool); ok {
 				if parsedCondition { // if
-					ifBlock := &Block{Stack: Stack{}, Parameters: Stack{}} // other than Heap, I can't see any use
-					ifInterStack := &Stack{}                               // this will have the if's parsed stack
-					blockCount := 0
-					i++
-					ifitem := (*interpretedStack)[i]
+					ifitem := parsedStack[i]
 					for (ifitem.Id != enums.ELSE && ifitem.Id != enums.END) || blockCount != 0 {
-						if ArrayContains(&BlockMakers, ifitem.Id) { // TODO convert this to a block checker function
+						if ArrayContains(&BlockDeclerations, ifitem.Id) { // TODO convert this to a block checker function
 							blockCount++
 						} else if ifitem.Id == enums.END {
 							blockCount--
 						}
-						Push(ifInterStack, ifitem)
+						Push(&BlockStack, ifitem)
 						i++
-						ifitem = (*interpretedStack)[i]
+						ifitem = parsedStack[i]
 					}
 					i++
-					ifitem = (*interpretedStack)[i]
+					ifitem = parsedStack[i]
 					for (ifitem.Id != enums.END) || blockCount != 0 {
-						if ArrayContains(&BlockMakers, ifitem.Id) {
+						if ArrayContains(&BlockDeclerations, ifitem.Id) {
 							blockCount++
 						} else if ifitem.Id == enums.END {
 							blockCount--
 						}
 						i++
-						ifitem = (*interpretedStack)[i]
+						ifitem = parsedStack[i]
 					}
-
-					interpretStack(fileBlockMap, ifBlock, functionBlock, ifInterStack, parentContextStack, functionHeap, globalHeap)
-					ifBlock = nil
-					ifInterStack = nil
 				} else { // else
-					elseBlock := &Block{Stack: Stack{}, Parameters: Stack{}}
-					elseInterStack := &Stack{} // this will have the elses's parsed stack
-					blockCount := 0
-					i++
-					elseitem := (*interpretedStack)[i]
+					elseitem := parsedStack[i]
 					for (elseitem.Id != enums.ELSE && elseitem.Id != enums.END) || blockCount != 0 {
-						if ArrayContains(&BlockMakers, elseitem.Id) {
+						if ArrayContains(&BlockDeclerations, elseitem.Id) {
 							blockCount++
 						} else if elseitem.Id == enums.END {
 							blockCount--
 						}
 						i++
-						elseitem = (*interpretedStack)[i]
+						elseitem = parsedStack[i]
 					}
 					i++
-					elseitem = (*interpretedStack)[i]
+					elseitem = parsedStack[i]
 					for (elseitem.Id != enums.END) || blockCount != 0 {
-						if ArrayContains(&BlockMakers, elseitem.Id) {
+						if ArrayContains(&BlockDeclerations, elseitem.Id) {
 							blockCount++
 						} else if elseitem.Id == enums.END {
 							blockCount--
 						}
-						Push(elseInterStack, elseitem)
+						Push(&BlockStack, elseitem)
 						i++
-						elseitem = (*interpretedStack)[i]
+						elseitem = parsedStack[i]
 					}
-					Push(elseInterStack, elseitem)
-					interpretStack(fileBlockMap, elseBlock, functionBlock, elseInterStack, parentContextStack, functionHeap, globalHeap)
-					elseBlock = nil
-					elseInterStack = nil
 				}
 			} else {
 				log.Fatalf("%v value before 'if' is not a condition", condition)
 			}
+			result := interpretStack(fileBlockMap, BlockStack, parentContextStack, functionHeap)
+			*context = append(*context, result...)
 		} else if item.Id == enums.IDENTIFIER {
 			name := item.Value.(string)
 			if ok := FileBlockMapContainsKey(fileBlockMap, name); ok {
-				interpret(fileBlockMap, name, functionBlock.Name, context, globalHeap)
-			} else if fHeapToken, ok := HeapGetValue(&functionHeap, name); ok {
-				Push(context, fHeapToken)
-			} else if fHeapToken, ok := HeapGetValue(globalHeap, name); ok {
-				Push(context, fHeapToken)
-			} else {
+				interpret(fileBlockMap, name, context)
+			} else if value, ok := HeapGetValue(functionHeap, name); ok { // TODO add a global const values
+				Push(context, value)
+			} else { // TODO add a global const values
 				Push(context, item)
 			}
 		} else {
 			Push(context, item)
 		}
 	}
-	context = nil
 
+	return *context
+	//	context = nil
 }
 
 //func compile{} // if ever

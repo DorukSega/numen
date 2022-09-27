@@ -1,0 +1,15 @@
+fun factorial x as
+	x 2 < if
+		1 ret
+	else
+		x 1 - factorial x * ret
+	end
+end
+
+fun fibonacci x as
+	x 2 < if
+		x ret
+	else
+		x 1 - fibonacci x 2 - fibonacci + ret
+	end
+end
