@@ -16,9 +16,10 @@ const (
 	DO
 	AS
 	ASSINGMENT
-	VAR // type infereance
+	VAR
 	LET
 	TYPE
 	TFUNCTION
+	IMPORT
 	IDENTIFIER
 )

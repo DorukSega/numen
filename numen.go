@@ -2,7 +2,10 @@ package main
 
 import (
 	"bufio"
+	"embed"
 	"fmt"
+	"io"
+	"io/fs"
 	"log"
 	. "numen/core"
 	"numen/enums"
@@ -15,21 +18,29 @@ import (
 // Global Function
 const global = "_global"
 
+//go:embed stdlib/*
+var stdlib embed.FS
+
 func main() {
 	for _, file := range os.Args[1:] {
-		fmt.Printf("Reading: %s \n", file)
+
 		readFile(file)
-
 	}
-
 }
 
 func readFile(filename string) *FileBlockMap {
+	fmt.Printf("Reading: %s \n", filename)
+	dir := filepath.Join(filepath.Dir(os.Args[0]), filename) // userfile
 
-	dir := filepath.Join(filepath.Dir(os.Args[0]), filename)
-	file, err := os.Open(dir)
-	if err != nil {
-		log.Fatal(err)
+	var file io.Reader
+	if data, err := stdlib.Open("stdlib/" + filename); err == nil {
+		file = data
+	} else {
+		data, err := os.Open(dir)
+		if err != nil {
+			log.Fatal(err)
+		}
+		file = data
 	}
 
 	var fileBlockMap = parseFile(file)
@@ -38,13 +49,22 @@ func readFile(filename string) *FileBlockMap {
 	}
 	interpretGlobal(fileBlockMap)
 
-	if errc := file.Close(); errc != nil {
-		log.Fatal(errc)
+	of, ok1 := file.(*os.File)
+	fsf, ok2 := file.(fs.File)
+	if ok1 {
+		if errc := of.Close(); errc != nil {
+			log.Fatal(errc)
+		}
+	} else if ok2 {
+		if errc := fsf.Close(); errc != nil {
+			log.Fatal(errc)
+		}
 	}
+
 	return fileBlockMap
 }
 
-func parseFile(file *os.File) *FileBlockMap {
+func parseFile(file io.Reader) *FileBlockMap {
 	var fileBlockMap = &FileBlockMap{
 		global: &Block{Name: global},
 	}
@@ -158,8 +178,54 @@ func parseBlock(scanner *bufio.Scanner, mainBlockName string, fileBlockMap *File
 // interprets main and global
 func interpretGlobal(fileBlockMap *FileBlockMap) {
 	fakePStack := &[]Token{}
+
+	gStack := (*fileBlockMap)[global].Stack
+
+	for i := 0; i < len(gStack); i++ {
+		item := gStack[i]
+		if item.Id == enums.IMPORT {
+			blockCount := 0
+			var toImport []string
+			i++ // AS
+			impitem := gStack[i]
+			for (impitem.Id != enums.END) || blockCount != 0 {
+				if ArrayContains(&BlockDeclerations, impitem.Id) {
+					blockCount++
+				} else if impitem.Id == enums.END {
+					blockCount--
+				}
+				if val, ok := impitem.Value.(string); ok {
+					toImport = append(toImport, val)
+				} else {
+					log.Printf("Error import is not a string %v", impitem)
+				}
+				i++
+				impitem = gStack[i]
+			}
+			fmt.Printf("imported items %v \n", toImport)
+
+			for _, item := range toImport {
+				if item[len(item)-3:] != ".nm" {
+					item += ".nm"
+				}
+				fmap := readFile(item)
+				for K, V := range *fmap {
+					if !FileBlockMapContainsKey(fileBlockMap, K) {
+						(*fileBlockMap)[K] = V
+					} else if K == global {
+						(*fileBlockMap)[K].Stack = append((*fileBlockMap)[K].Stack, V.Stack...)
+					}
+				}
+
+			}
+
+		}
+	}
 	interpret(fileBlockMap, global, fakePStack)
-	interpret(fileBlockMap, "main", fakePStack)
+	fmt.Println("Interpret:")
+	if FileBlockMapContainsKey(fileBlockMap, "main") {
+		interpret(fileBlockMap, "main", fakePStack)
+	}
 	if len(*fakePStack) != 0 {
 		log.Fatal("it is not posible to return from Global or Main")
 	}
@@ -171,6 +237,7 @@ func interpret(fileBlockMap *FileBlockMap, functionName string, parentContextSta
 	functionHeap := Heap{}
 	//evaluate function parameters
 	interpretedStack := &[]Token{} // context is used as live stack
+
 	for _, par := range StackReversRet(functionBlock.Parameters) {
 		if par.Id == enums.TYPE {
 			popped, err := Pop(parentContextStack)
@@ -249,10 +316,20 @@ func interpretStack(fileBlockMap *FileBlockMap, parsedStack []Token, parentConte
 			case "is":
 				Bis(context)
 			}
+		} else if item.Id == enums.ASSINGMENT {
+			value := SafePop(context, "Assignment")
+			identifier := parsedStack[i+1]
+			if identifier.Id != enums.IDENTIFIER {
+				log.Fatal("the right hand side value is not a identifier")
+			}
+			//fmt.Printf("%v >> %v\n", value, identifier)
+			(*functionHeap)[identifier.Value.(string)] = value
 		} else if item.Id == enums.LET {
 			var BlockStack []Token
-			var LetHeap *Heap
-			*LetHeap = *functionHeap
+			var LetHeap = &Heap{}
+			for k, v := range *functionHeap { // deep copy
+				(*LetHeap)[k] = v
+			}
 			blockCount := 0
 
 			i++ // skip first
@@ -291,6 +368,11 @@ func interpretStack(fileBlockMap *FileBlockMap, parsedStack []Token, parentConte
 			}
 			result := interpretStack(fileBlockMap, BlockStack, parentContextStack, LetHeap)
 			*context = append(*context, result...)
+			for K, V := range *LetHeap { // carry ones that exist in parent heap
+				if HeapContainsKey(functionHeap, K) {
+					(*functionHeap)[K] = V
+				}
+			}
 		} else if item.Id == enums.WHILE {
 			var BlockStack []Token
 			var CondStack []Token
@@ -314,8 +396,11 @@ func interpretStack(fileBlockMap *FileBlockMap, parsedStack []Token, parentConte
 				i++
 				whlitem = parsedStack[i]
 			}
-			var WhileHeap *Heap
-			*WhileHeap = *functionHeap
+			var WhileHeap = &Heap{}
+			for k, v := range *functionHeap { // deep copy
+				(*WhileHeap)[k] = v
+			}
+
 			condres := interpretStack(fileBlockMap, CondStack, parentContextStack, WhileHeap)
 			condition := SafePop(&condres, "while")
 			var parsedCondition, ok = condition.Value.(bool)
@@ -327,6 +412,11 @@ func interpretStack(fileBlockMap *FileBlockMap, parsedStack []Token, parentConte
 				nres := interpretStack(fileBlockMap, CondStack, parentContextStack, WhileHeap)
 				ncond := SafePop(&nres, "while")
 				parsedCondition, ok = ncond.Value.(bool)
+			}
+			for K, V := range *WhileHeap { // carry ones that exist in parent heap
+				if HeapContainsKey(functionHeap, K) {
+					(*functionHeap)[K] = V
+				}
 			}
 		} else if item.Id == enums.IF || item.Id == enums.IFF {
 			var BlockStack []Token

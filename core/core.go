@@ -18,9 +18,10 @@ var TokenIdMap = map[enums.TokenIDs]string{
 	enums.DO:         "do",
 	enums.TFUNCTION:  "fun",
 	enums.AS:         "as",
-	enums.VAR:        "var",
+	enums.VAR:        "var", // maybe use as a typed variable declaration?
 	enums.LET:        "let",
-	enums.ASSINGMENT: "=",
+	enums.ASSINGMENT: ">>",
+	enums.IMPORT:     "import",
 }
 
 var NTypeMap = map[string]enums.TokenIDs{ // which type takes what
@@ -139,6 +140,7 @@ func MapGetKey[K comparable, V comparable](m *map[K]V, value V) (K, bool) {
 	}
 	return *new(K), false
 }
+
 func HeapContainsKey(m *Heap, key string) bool {
 	for Key, _ := range *m {
 		if Key == key {
