@@ -23,7 +23,6 @@ var stdlib embed.FS
 
 func main() {
 	for _, file := range os.Args[1:] {
-
 		readFile(file)
 	}
 }
