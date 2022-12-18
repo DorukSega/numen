@@ -1,0 +1,21 @@
+fun main as
+     "Tests: "       print
+     8  4   +   12   assert
+     8  4   -   4    assert
+     8  4   *   32   assert
+     8  4   /   2    assert
+     8  4   %   0    assert
+     5 int is true   assert
+     5  5  == true   assert
+     5  4  swap - -1 assert
+     5  4 drop 5     assert
+     5 copy + 10     assert
+     5 4 3 rot - + 4 assert
+     5 4 carry 5     assert
+     6 4 > true      assert
+     5 5 >= true     assert
+     4 6 >= false    assert
+     5 6 <= true     assert
+     5 5 <= true     assert
+     "All Passed!"   print
+end
