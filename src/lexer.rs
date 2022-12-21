@@ -1,7 +1,7 @@
 use crate::head;
 use head::{Lexeme, TokId};
 
-const LEXMAP: [Lexeme<&'static str>; 27] = [
+const LEXMAP: [Lexeme<&'static str>; 29] = [
     Lexeme { id: TokId::FUNCTION, rep: "fun" },
     Lexeme { id: TokId::IMPORT, rep: "import" },
     Lexeme { id: TokId::END, rep: "end" },
@@ -14,21 +14,23 @@ const LEXMAP: [Lexeme<&'static str>; 27] = [
     Lexeme { id: TokId::ELSE, rep: "else" },
     Lexeme { id: TokId::PLUS, rep: "+" },
     Lexeme { id: TokId::MINUS, rep: "-" },
-    Lexeme { id: TokId::MULTIPLY, rep: "*", },
-    Lexeme { id: TokId::DIVIDE, rep: "/", },
-    Lexeme { id: TokId::MOD, rep: "%", },
-    Lexeme { id: TokId::ASSIGNMENT, rep: "=", },
-    Lexeme { id: TokId::RETURNINGASSIGNMENT, rep: "=>", },
-    Lexeme { id: TokId::EQUALS, rep: "==", },
-    Lexeme { id: TokId::BIGGER, rep: ">", },
-    Lexeme { id: TokId::SMALLER, rep: "<", },
-    Lexeme { id: TokId::SMALLEREQUALS, rep: "<=", },
-    Lexeme { id: TokId::BIGGEREQUALS, rep: ">=", },
-    Lexeme { id: TokId::TINT, rep: "int", },
-    Lexeme { id: TokId::TFLOAT, rep: "float", },
-    Lexeme { id: TokId::TSTRING, rep: "str", },
-    Lexeme { id: TokId::TBOOL, rep: "bool", },
-    Lexeme { id: TokId::IS, rep: "is", },
+    Lexeme { id: TokId::MULTIPLY, rep: "*" },
+    Lexeme { id: TokId::DIVIDE, rep: "/" },
+    Lexeme { id: TokId::MOD, rep: "%" },
+    Lexeme { id: TokId::ASSIGNMENT, rep: "=" },
+    Lexeme { id: TokId::RETURNINGASSIGNMENT, rep: "=>" },
+    Lexeme { id: TokId::EQUALS, rep: "==" },
+    Lexeme { id: TokId::BIGGER, rep: ">" },
+    Lexeme { id: TokId::SMALLER, rep: "<" },
+    Lexeme { id: TokId::SMALLEREQUALS, rep: "<=" },
+    Lexeme { id: TokId::BIGGEREQUALS, rep: ">=" },
+    Lexeme { id: TokId::TINT, rep: "int" },
+    Lexeme { id: TokId::TFLOAT, rep: "float" },
+    Lexeme { id: TokId::TSTRING, rep: "str" },
+    Lexeme { id: TokId::TBOOL, rep: "bool" },
+    Lexeme { id: TokId::IS, rep: "is" },
+    Lexeme { id: TokId::ARRAYBEGIN, rep: "[" },
+    Lexeme { id: TokId::ARRAYEND, rep: "]" },
 ];
 
 
@@ -47,7 +49,6 @@ pub fn lexer_file(file: &String) -> Vec<Lexeme<String>> {
     let mut word: Vec<char> = Vec::new();
     //let mut raw_string: Vec<char> = Vec::new();
     let mut string_mode: Option<char> = None;
-
     for char in file.chars() {
         // in raw string mode
         if string_mode.is_some() {
@@ -64,6 +65,22 @@ pub fn lexer_file(file: &String) -> Vec<Lexeme<String>> {
                 word.push(char);
             }
             continue; // must continue to avoid parsing
+        }
+
+        if char == '['  {
+            if word.len() > 0 {
+                // this will only run when the word is not empty
+                result.push(Lexeme {
+                    id: TokId::UNKNOWN,
+                    rep: word_to_string(&word).clone(),
+                });
+                word.clear();
+            }
+            result.push(Lexeme {
+                id: TokId::ARRAYBEGIN,
+                rep: char.to_string(),
+            });
+            continue;
         }
 
         // if there is a raw string

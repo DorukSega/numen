@@ -1,10 +1,10 @@
-use crate::head::{Function, Lexeme, TokId, GLOBAL, MAIN};
+use crate::head::{Function, TokId, GLOBAL, MAIN, Object, Value};
 use std::collections::HashMap;
-use std::process::exit;
+use std::process::{exit};
 
 
 pub fn interpret(mut function_map: HashMap<String, Function>) {
-    let mut global_heap: HashMap<String, Lexeme<String>> = HashMap::new();
+    let mut global_heap: HashMap<String, Object> = HashMap::new();
 
     interpret_func(
         &mut function_map,
@@ -27,11 +27,11 @@ pub fn interpret(mut function_map: HashMap<String, Function>) {
 fn interpret_func(
     function_map: &mut HashMap<String, Function>,
     fname: String,
-    global_heap: &mut HashMap<String, Lexeme<String>>,
-    parent_stack_option: Option<&mut Vec<Lexeme<String>>>,
-    custom_stack: Option<Vec<Lexeme<String>>>,
-    custom_heap: Option<&mut HashMap<String, Lexeme<String>>>,
-) -> Vec<Lexeme<String>> {
+    global_heap: &mut HashMap<String, Object>,
+    parent_stack_option: Option<&mut Vec<Object>>,
+    custom_stack: Option<Vec<Object>>,
+    custom_heap: Option<&mut HashMap<String, Object>>,
+) -> Vec<Object> {
     let Some(mut func) = function_map.get_mut(&fname).cloned() else {
         panic!("INTERP: {} function does not exist", fname)
     };
@@ -45,8 +45,8 @@ fn interpret_func(
         live_heap = custom_heap.unwrap();
     }
 
-    let mut live_stack: Vec<Lexeme<String>> = Vec::new(); // STACK
-    let mut parent_stack: Option<&mut Vec<Lexeme<String>>> = None;
+    let mut live_stack: Vec<Object> = Vec::new(); // STACK
+    let mut parent_stack: Option<&mut Vec<Object>> = None;
 
     if let Some(par_stack) = parent_stack_option {
         // ARGUMENT PASSING
@@ -61,7 +61,10 @@ fn interpret_func(
             });
             if arg.id == TokId::UNKNOWN {
                 // variable name case
-                live_heap.insert(arg.rep.clone(), value);
+                live_heap.insert(match arg.rep.clone() {
+                    Value::STR(s) => s,
+                    Value::ARR(_) => unreachable!()
+                }, value);
             } else {
                 // type names, int float so on
                 match arg.id {
@@ -101,7 +104,7 @@ fn interpret_func(
         ELSE,
     }
     let mut block_types: Vec<BlockType> = Vec::new();
-    let mut vector_heap: Vec<HashMap<String, Lexeme<String>>> = Vec::new();
+    let mut vector_heap: Vec<HashMap<String, Object>> = Vec::new();
     let mut block_level: i32 = -1;
 
     let mut iter = func.stack.iter().enumerate();
@@ -148,8 +151,8 @@ fn interpret_func(
             TokId::LINEBREAK => {} // should not use linebreak
             TokId::IMPORT => {}
             TokId::WHILE => {
-                let mut while_cond: Vec<Lexeme<String>> = Vec::new();
-                let mut do_stack: Vec<Lexeme<String>> = Vec::new();
+                let mut while_cond: Vec<Object> = Vec::new();
+                let mut do_stack: Vec<Object> = Vec::new();
                 let mut item = iter.next().expect("INTERP: no condition to evaluate for while").1;
                 let mut block_count = 0;
                 while item.id != TokId::DO || block_count != 0 {
@@ -178,7 +181,7 @@ fn interpret_func(
                     Some(while_cond.clone()), Some(&mut live_heap),
                 );
                 let mut condition = result.pop().expect("INTERP: no condition for while");
-                while condition.rep == "true" {
+                while cast2string(&condition.rep) == "true" {
                     let mut runned_stack = interpret_func(
                         function_map, fname.clone(), global_heap, parent_stack.as_deref_mut(),
                         Some(do_stack.clone()), Some(&mut live_heap),
@@ -198,12 +201,12 @@ fn interpret_func(
                 if condition.id != TokId::BOOLEAN {
                     panic!("INTERP: argument {} is not the type boolean", condition.id)
                 }
-                if condition.rep == "true" {
+                if cast2string(&condition.rep) == "true" {
                     block_level += 1;
                     block_types.push(BlockType::IF);
                     vector_heap.insert(block_level as usize, HashMap::new());
                     continue;
-                } else if condition.rep == "false" {
+                } else if cast2string(&condition.rep) == "false" {
                     let mut item = iter.next().expect("INTERP: no argument to evaluate for if").1;
                     let mut block_count = 0;
                     // This will skip everything until else or end
@@ -229,12 +232,29 @@ fn interpret_func(
                 let second = live_stack.pop().expect("INTERP: error no argument to add");
                 let first = live_stack.pop().expect("INTERP: error no argument to add");
                 match first.id {
+                    TokId::ARRAY => {
+                        if second.id == TokId::ARRAY {
+                            let Value::ARR(mut first_arr) = first.rep else {
+                                panic!("INTERP: expected Array but got this {}", first.rep);
+                            };
+                            let Value::ARR(second_arr) = second.rep else {
+                                panic!("INTERP: expected Array but got this {}", second.rep);
+                            };
+                            first_arr.extend_from_slice(&second_arr);
+                            live_stack.push(Object {
+                                id: TokId::ARRAY,
+                                rep: Value::ARR(first_arr),
+                            })
+                        } else {
+                            panic!("INTERP: {:?} and {:?} can't be added", first, second);
+                        }
+                    }
                     TokId::STRING => {
                         //string
                         if second.id == TokId::STRING {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::STRING,
-                                rep: (first.rep + second.rep.as_str()),
+                                rep: Value::STR(cast2str(first.rep) + cast2str(second.rep).as_str()),
                             })
                         } else {
                             panic!("INTERP: {:?} and {:?} can't be added", first, second);
@@ -242,15 +262,15 @@ fn interpret_func(
                     }
                     TokId::INT => {
                         if second.id == TokId::INT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::INT,
-                                rep: (cast2int(&first.rep) + cast2int(&second.rep)).to_string(),
+                                rep: Value::STR((cast2int(cast2string(&first.rep)) + cast2int(cast2string(&second.rep))).to_string()), //Value::STR((cast2int(cast2string(&first.rep)) + cast2int(cast2string(&second.rep))).to_string())
                             })
                         } else if second.id == TokId::FLOAT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2int(&first.rep) as f64 + cast2float(&second.rep))
-                                    .to_string(),
+                                rep: Value::STR((cast2int(cast2string(&first.rep)) as f64 + cast2float(cast2string(&second.rep)))
+                                    .to_string()),
                             })
                         } else {
                             panic!("INTERP: {:?} and {:?} can't be added", first, second);
@@ -258,15 +278,15 @@ fn interpret_func(
                     }
                     TokId::FLOAT => {
                         if second.id == TokId::INT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2float(&first.rep) + cast2int(&second.rep) as f64)
-                                    .to_string(),
+                                rep: Value::STR((cast2float(cast2string(&first.rep)) + cast2int(cast2string(&second.rep)) as f64)
+                                    .to_string()),
                             })
                         } else if second.id == TokId::FLOAT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2float(&first.rep) + cast2float(&second.rep)).to_string(),
+                                rep: Value::STR((cast2float(cast2string(&first.rep)) + cast2float(cast2string(&second.rep))).to_string()),
                             })
                         } else {
                             panic!("INTERP: {:?} and {:?} can't be added", first, second);
@@ -287,15 +307,15 @@ fn interpret_func(
                 match first.id {
                     TokId::INT => {
                         if second.id == TokId::INT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::INT,
-                                rep: (cast2int(&first.rep) - cast2int(&second.rep)).to_string(),
+                                rep: Value::STR((cast2int(cast2string(&first.rep)) - cast2int(cast2string(&second.rep))).to_string()),
                             })
                         } else if second.id == TokId::FLOAT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2int(&first.rep) as f64 - cast2float(&second.rep))
-                                    .to_string(),
+                                rep: Value::STR((cast2int(cast2string(&first.rep)) as f64 - cast2float(cast2string(&second.rep)))
+                                    .to_string()),
                             })
                         } else {
                             panic!("INTERP: {:?} and {:?} can't be subtracted", first, second);
@@ -303,15 +323,15 @@ fn interpret_func(
                     }
                     TokId::FLOAT => {
                         if second.id == TokId::INT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2float(&first.rep) - cast2int(&second.rep) as f64)
-                                    .to_string(),
+                                rep: Value::STR((cast2float(cast2string(&first.rep)) - cast2int(cast2string(&second.rep)) as f64)
+                                    .to_string()),
                             })
                         } else if second.id == TokId::FLOAT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2float(&first.rep) - cast2float(&second.rep)).to_string(),
+                                rep: Value::STR((cast2float(cast2string(&first.rep)) - cast2float(cast2string(&second.rep))).to_string()),
                             })
                         } else {
                             panic!("INTERP: {:?} and {:?} can't be subtracted", first, second);
@@ -328,15 +348,15 @@ fn interpret_func(
                 match first.id {
                     TokId::INT => {
                         if second.id == TokId::INT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::INT,
-                                rep: (cast2int(&first.rep) * cast2int(&second.rep)).to_string(),
+                                rep: Value::STR((cast2int(cast2string(&first.rep)) * cast2int(cast2string(&second.rep))).to_string()),
                             })
                         } else if second.id == TokId::FLOAT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2int(&first.rep) as f64 * cast2float(&second.rep))
-                                    .to_string(),
+                                rep: Value::STR((cast2int(cast2string(&first.rep)) as f64 * cast2float(cast2string(&second.rep)))
+                                    .to_string()),
                             })
                         } else {
                             panic!("INTERP: {:?} and {:?} can't be multiplied", first, second);
@@ -344,15 +364,15 @@ fn interpret_func(
                     }
                     TokId::FLOAT => {
                         if second.id == TokId::INT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2float(&first.rep) * cast2int(&second.rep) as f64)
-                                    .to_string(),
+                                rep: Value::STR((cast2float(cast2string(&first.rep)) * cast2int(cast2string(&second.rep)) as f64)
+                                    .to_string()),
                             })
                         } else if second.id == TokId::FLOAT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2float(&first.rep) * cast2float(&second.rep)).to_string(),
+                                rep: Value::STR((cast2float(cast2string(&first.rep)) * cast2float(cast2string(&second.rep))).to_string()),
                             })
                         } else {
                             panic!("INTERP: {:?} and {:?} can't be multiplied", first, second);
@@ -369,14 +389,14 @@ fn interpret_func(
                 match first.id {
                     TokId::INT => {
                         if second.id == TokId::INT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::INT,
-                                rep: (cast2int(&first.rep) / cast2int(&second.rep)).to_string(),
+                                rep: Value::STR((cast2int(cast2string(&first.rep)) / cast2int(cast2string(&second.rep))).to_string()),
                             })
                         } else if second.id == TokId::FLOAT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2int(&first.rep) as f64 / cast2float(&second.rep)).to_string(),
+                                rep: Value::STR((cast2int(cast2string(&first.rep)) as f64 / cast2float(cast2string(&second.rep))).to_string()),
                             })
                         } else {
                             panic!("INTERP: {:?} and {:?} can't be divided", first, second);
@@ -384,14 +404,14 @@ fn interpret_func(
                     }
                     TokId::FLOAT => {
                         if second.id == TokId::INT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2float(&first.rep) / cast2int(&second.rep) as f64).to_string(),
+                                rep: Value::STR((cast2float(cast2string(&first.rep)) / cast2int(cast2string(&second.rep)) as f64).to_string()),
                             })
                         } else if second.id == TokId::FLOAT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2float(&first.rep) / cast2float(&second.rep)).to_string(),
+                                rep: Value::STR((cast2float(cast2string(&first.rep)) / cast2float(cast2string(&second.rep))).to_string()),
                             })
                         } else {
                             panic!("INTERP: {:?} and {:?} can't be divided", first, second);
@@ -408,14 +428,14 @@ fn interpret_func(
                 match first.id {
                     TokId::INT => {
                         if second.id == TokId::INT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::INT,
-                                rep: (cast2int(&first.rep) % cast2int(&second.rep)).to_string(),
+                                rep: Value::STR((cast2int(cast2string(&first.rep)) % cast2int(cast2string(&second.rep))).to_string()),
                             })
                         } else if second.id == TokId::FLOAT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2int(&first.rep) as f64 % cast2float(&second.rep)).to_string(),
+                                rep: Value::STR((cast2int(cast2string(&first.rep)) as f64 % cast2float(cast2string(&second.rep))).to_string()),
                             })
                         } else {
                             panic!("INTERP: {:?} and {:?} can't be used to mod", first, second);
@@ -423,14 +443,14 @@ fn interpret_func(
                     }
                     TokId::FLOAT => {
                         if second.id == TokId::INT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2float(&first.rep) % cast2int(&second.rep) as f64).to_string(),
+                                rep: Value::STR((cast2float(cast2string(&first.rep)) % cast2int(cast2string(&second.rep)) as f64).to_string()),
                             })
                         } else if second.id == TokId::FLOAT {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::FLOAT,
-                                rep: (cast2float(&first.rep) % cast2float(&second.rep)).to_string(),
+                                rep: Value::STR((cast2float(cast2string(&first.rep)) % cast2float(cast2string(&second.rep))).to_string()),
                             })
                         } else {
                             panic!("INTERP: {:?} and {:?} can't be used to mod", first, second);
@@ -449,14 +469,14 @@ fn interpret_func(
                     || (first.id == TokId::BOOLEAN && second.id == TokId::TBOOL)
                     || (first.id == TokId::STRING && second.id == TokId::TSTRING)
                 {
-                    live_stack.push(Lexeme {
+                    live_stack.push(Object {
                         id: TokId::BOOLEAN,
-                        rep: "true".to_string(),
+                        rep: Value::STR("true".to_string()),
                     });
                 } else {
-                    live_stack.push(Lexeme {
+                    live_stack.push(Object {
                         id: TokId::BOOLEAN,
-                        rep: "false".to_string(),
+                        rep: Value::STR("false".to_string()),
                     });
                 }
             }
@@ -475,28 +495,28 @@ fn interpret_func(
                     live_stack.push(popped.clone());
                 }
                 if fname == GLOBAL {
-                    global_heap.insert(var.rep.clone(), popped);
+                    global_heap.insert(cast2str(var.rep.clone()), popped);
                 } else {
                     if block_level > -1 {
                         // INSIDE A BLOCK
-                        if global_heap.contains_key(var.rep.as_str()) {
-                            global_heap.insert(var.rep.clone(), popped);
-                        } else if live_heap.contains_key(var.rep.as_str()) {
-                            live_heap.insert(var.rep.clone(), popped);
+                        if global_heap.contains_key(cast2string(&var.rep)) {
+                            global_heap.insert(cast2str(var.rep.clone()), popped);
+                        } else if live_heap.contains_key(cast2string(&var.rep)) {
+                            live_heap.insert(cast2str(var.rep.clone()), popped);
                         } else {
                             for i in (0..block_level + 1).rev() {
-                                if vector_heap[i as usize].contains_key(var.rep.as_str()) {
-                                    vector_heap[i as usize].insert(var.rep.clone(), popped);
+                                if vector_heap[i as usize].contains_key(cast2string(&var.rep)) {
+                                    vector_heap[i as usize].insert(cast2str(var.rep.clone()), popped);
                                     continue 'main;
                                 }
                             }
-                            vector_heap[block_level as usize].insert(var.rep.clone(), popped);
+                            vector_heap[block_level as usize].insert(cast2str(var.rep.clone()), popped);
                         }
                     } else {
-                        if global_heap.contains_key(var.rep.as_str()) {
-                            global_heap.insert(var.rep.clone(), popped);
+                        if global_heap.contains_key(cast2string(&var.rep)) {
+                            global_heap.insert(cast2str(var.rep.clone()), popped);
                         } else {
-                            live_heap.insert(var.rep.clone(), popped);
+                            live_heap.insert(cast2str(var.rep.clone()), popped);
                         }
                     }
                 }
@@ -509,14 +529,14 @@ fn interpret_func(
                     .pop()
                     .expect("INTERP: error no argument to check for equation");
                 if first == second {
-                    live_stack.push(Lexeme {
+                    live_stack.push(Object {
                         id: TokId::BOOLEAN,
-                        rep: "true".to_string(),
+                        rep: Value::STR("true".to_string()),
                     });
                 } else {
-                    live_stack.push(Lexeme {
+                    live_stack.push(Object {
                         id: TokId::BOOLEAN,
-                        rep: "false".to_string(),
+                        rep: Value::STR("false".to_string()),
                     });
                 }
             }
@@ -529,44 +549,44 @@ fn interpret_func(
                     .expect("INTERP: error no argument to compare for bigger");
                 match first.id {
                     TokId::INT => {
-                        if second.id == TokId::INT && cast2int(&first.rep) > cast2int(&second.rep) {
-                            live_stack.push(Lexeme {
+                        if second.id == TokId::INT && cast2int(cast2string(&first.rep)) > cast2int(cast2string(&second.rep)) {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else if second.id == TokId::FLOAT
-                            && cast2int(&first.rep) as f64 > cast2float(&second.rep)
+                            && cast2int(cast2string(&first.rep)) as f64 > cast2float(cast2string(&second.rep))
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "false".to_string(),
+                                rep: Value::STR("false".to_string()),
                             })
                         }
                     }
                     TokId::FLOAT => {
                         if second.id == TokId::INT
-                            && cast2float(&first.rep) > cast2int(&second.rep) as f64
+                            && cast2float(cast2string(&first.rep)) > cast2int(cast2string(&second.rep)) as f64
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else if second.id == TokId::FLOAT
-                            && cast2float(&first.rep) > cast2float(&second.rep)
+                            && cast2float(cast2string(&first.rep)) > cast2float(cast2string(&second.rep))
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "false".to_string(),
+                                rep: Value::STR("false".to_string()),
                             })
                         }
                     }
@@ -584,45 +604,45 @@ fn interpret_func(
                     .expect("INTERP: error no argument to compare for smaller");
                 match first.id {
                     TokId::INT => {
-                        if second.id == TokId::INT && cast2int(&first.rep) < cast2int(&second.rep) {
-                            live_stack.push(Lexeme {
+                        if second.id == TokId::INT && cast2int(cast2string(&first.rep)) < cast2int(cast2string(&second.rep)) {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else if second.id == TokId::FLOAT
-                            && cast2float(&second.rep) > cast2int(&first.rep) as f64
+                            && cast2float(cast2string(&second.rep)) > cast2int(cast2string(&first.rep)) as f64
                         {
                             // hack because other way don't work
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "false".to_string(),
+                                rep: Value::STR("false".to_string()),
                             })
                         }
                     }
                     TokId::FLOAT => {
                         if second.id == TokId::INT
-                            && cast2float(&first.rep) < cast2int(&second.rep) as f64
+                            && cast2float(cast2string(&first.rep)) < cast2int(cast2string(&second.rep)) as f64
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else if second.id == TokId::FLOAT
-                            && cast2float(&first.rep) < cast2float(&second.rep)
+                            && cast2float(cast2string(&first.rep)) < cast2float(cast2string(&second.rep))
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "false".to_string(),
+                                rep: Value::STR("false".to_string()),
                             })
                         }
                     }
@@ -640,45 +660,45 @@ fn interpret_func(
                     .expect("INTERP: error no argument to compare for bigger equals");
                 match first.id {
                     TokId::INT => {
-                        if second.id == TokId::INT && cast2int(&first.rep) >= cast2int(&second.rep)
+                        if second.id == TokId::INT && cast2int(cast2string(&first.rep)) >= cast2int(cast2string(&second.rep))
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else if second.id == TokId::FLOAT
-                            && cast2int(&first.rep) as f64 >= cast2float(&second.rep)
+                            && cast2int(cast2string(&first.rep)) as f64 >= cast2float(cast2string(&second.rep))
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "false".to_string(),
+                                rep: Value::STR("false".to_string()),
                             })
                         }
                     }
                     TokId::FLOAT => {
                         if second.id == TokId::INT
-                            && cast2float(&first.rep) >= cast2int(&second.rep) as f64
+                            && cast2float(cast2string(&first.rep)) >= cast2int(cast2string(&second.rep)) as f64
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else if second.id == TokId::FLOAT
-                            && cast2float(&first.rep) >= cast2float(&second.rep)
+                            && cast2float(cast2string(&first.rep)) >= cast2float(cast2string(&second.rep))
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "false".to_string(),
+                                rep: Value::STR("false".to_string()),
                             })
                         }
                     }
@@ -696,45 +716,45 @@ fn interpret_func(
                     .expect("INTERP: error no argument to compare for smaller equals");
                 match first.id {
                     TokId::INT => {
-                        if second.id == TokId::INT && cast2int(&first.rep) <= cast2int(&second.rep)
+                        if second.id == TokId::INT && cast2int(cast2string(&first.rep)) <= cast2int(cast2string(&second.rep))
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else if second.id == TokId::FLOAT
-                            && cast2int(&first.rep) as f64 <= cast2float(&second.rep)
+                            && cast2int(cast2string(&first.rep)) as f64 <= cast2float(cast2string(&second.rep))
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "false".to_string(),
+                                rep: Value::STR("false".to_string()),
                             })
                         }
                     }
                     TokId::FLOAT => {
                         if second.id == TokId::INT
-                            && cast2float(&first.rep) <= cast2int(&second.rep) as f64
+                            && cast2float(cast2string(&first.rep)) <= cast2int(cast2string(&second.rep)) as f64
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else if second.id == TokId::FLOAT
-                            && cast2float(&first.rep) <= cast2float(&second.rep)
+                            && cast2float(cast2string(&first.rep)) <= cast2float(cast2string(&second.rep))
                         {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "true".to_string(),
+                                rep: Value::STR("true".to_string()),
                             })
                         } else {
-                            live_stack.push(Lexeme {
+                            live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: "false".to_string(),
+                                rep: Value::STR("false".to_string()),
                             })
                         }
                     }
@@ -753,7 +773,7 @@ fn interpret_func(
                 }
             }
             TokId::UNKNOWN => {
-                match tok.rep.as_str() {
+                match cast2string(&tok.rep).as_str() {
                     "print" => {
                         let value = live_stack
                             .pop()
@@ -762,8 +782,18 @@ fn interpret_func(
                             TokId::STRING | TokId::INT | TokId::FLOAT | TokId::BOOLEAN => {
                                 println!("{}", value.rep)
                             }
+                            TokId::ARRAY => {
+                                match value.rep {
+                                    Value::STR(sr) => {
+                                        panic!("INTERP: argument defined as Array is not an Array {}", sr)
+                                    }
+                                    Value::ARR(arr) => {
+                                        println!("{}", array2string(arr))
+                                    }
+                                }
+                            }
                             _ => {
-                                panic!("INTERP: can't print {}", tok.rep);
+                                panic!("INTERP: can't print {}", value.rep);
                             }
                         }
                     }
@@ -811,19 +841,69 @@ fn interpret_func(
                             .expect("INTERP: error no argument to take square of");
                         match item.id {
                             TokId::INT => {
-                                live_stack.push(Lexeme {
-                                    rep: (f64::sqrt(cast2int(&item.rep) as f64) as i32).to_string(),
+                                live_stack.push(Object {
+                                    rep: Value::STR((f64::sqrt(cast2int(cast2string(&item.rep)) as f64) as i32).to_string()),
                                     id: TokId::INT,
                                 });
                             }
                             TokId::FLOAT => {
-                                live_stack.push(Lexeme {
-                                    rep: (f64::sqrt(cast2float(&item.rep))).to_string(),
+                                live_stack.push(Object {
+                                    rep: Value::STR((f64::sqrt(cast2float(cast2string(&item.rep)))).to_string()),
                                     id: TokId::FLOAT,
                                 });
                             }
                             typ => {
                                 panic!("INTERP: {:?} can't take the square root of this type", typ);
+                            }
+                        }
+                    }
+                    "push" => {
+                        let second = live_stack.pop().expect("INTERP: error no argument to push");
+                        let first = live_stack.pop().expect("INTERP: error no argument to push");
+                        if first.id == TokId::ARRAY {
+                            match second.id {
+                                TokId::INT | TokId::FLOAT | TokId::BOOLEAN | TokId::ARRAY | TokId::STRING => { // Base Types
+                                    let Value::ARR(mut first_arr) = first.rep else {
+                                        panic!("INTERP: expected Array but got this {}", first.rep);
+                                    };
+                                    first_arr.push(second);
+                                    live_stack.push(Object {
+                                        id: TokId::ARRAY,
+                                        rep: Value::ARR(first_arr),
+                                    })
+                                }
+                                _ => panic!("INTERP: {} can't be pushed into {}", second.rep, first.rep)
+                            }
+                        } else if second.id == TokId::ARRAY {
+                            match first.id {
+                                TokId::INT | TokId::FLOAT | TokId::BOOLEAN | TokId::ARRAY | TokId::STRING => { // Base Types
+                                    let Value::ARR(mut second_arr) = second.rep else {
+                                        panic!("INTERP: expected Array but got this {}", first.rep);
+                                    };
+                                    second_arr.push(first);
+                                    live_stack.push(Object {
+                                        id: TokId::ARRAY,
+                                        rep: Value::ARR(second_arr),
+                                    })
+                                }
+                                _ => panic!("INTERP: {} can't be pushed into {}", first.rep, second.rep)
+                            }
+                        } else {
+                            panic!("INTERP: no Array provided for push")
+                        }
+                    }
+                    "pop" => {
+                        let item = live_stack.pop().expect("INTERP: error no argument to pop");
+                        if item.id == TokId::ARRAY {
+                            let Value::ARR(mut arr) = item.rep else {
+                                panic!("INTERP: expected Array but got this {}", item.rep);
+                            };
+                            if let Some(popped) = arr.pop() {
+                                live_stack.push(Object {
+                                    id: TokId::ARRAY,
+                                    rep: Value::ARR(arr),
+                                });
+                                live_stack.push(popped)
                             }
                         }
                     }
@@ -888,4 +968,37 @@ fn cast2int(data: &String) -> i32 {
 fn cast2float(data: &String) -> f64 {
     data.parse::<f64>()
         .expect("INTERP: can't parse value to int")
+}
+
+
+fn cast2string(val: &Value) -> &String {
+    match &val {
+        Value::STR(s) => s,
+        Value::ARR(_) => panic!("INTERP: can't cast array as string")
+    }
+}
+
+fn cast2str(val: Value) -> String {
+    match val {
+        Value::STR(s) => s,
+        Value::ARR(_) => panic!("INTERP: can't cast array as string")
+    }
+}
+
+pub fn array2string(arr: Vec<Object>) -> String {
+    let mut result: String = String::from("[ ");
+    for item in arr {
+        match item.rep {
+            Value::STR(s) => {
+                if item.id == TokId::STRING {
+                    result += ("\"".to_string() + s.as_str() + "\" ").as_str()
+                } else {
+                    result += (s + " ").as_str()
+                }
+            }
+            Value::ARR(a) => result += (array2string(a) + " ").as_str(),
+        }
+    }
+    result += "]";
+    return result;
 }

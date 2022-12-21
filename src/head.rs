@@ -1,3 +1,5 @@
+use crate::interpreter::array2string;
+
 // global function name
 pub const GLOBAL: &'static str = "_global";
 // main function name
@@ -32,8 +34,11 @@ pub enum TokId {
     BOOLEAN,
     INT,
     FLOAT,
-    TINT,
+    ARRAYBEGIN,
+    ARRAYEND,
+    ARRAY,
     // raw types
+    TINT,
     TFLOAT,
     TSTRING,
     TBOOL,
@@ -48,14 +53,39 @@ pub struct Lexeme<T> {
     pub rep: T,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+    STR(String),
+    ARR(Vec<Object>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Object {
+    pub id: TokId,
+    pub rep: Value,
+}
+
 #[derive(Debug, Clone)]
 pub struct Function {
-    pub arguments: Vec<Lexeme<String>>,
-    pub stack: Vec<Lexeme<String>>,
+    pub arguments: Vec<Object>,
+    pub stack: Vec<Object>,
 }
 
 impl std::fmt::Display for TokId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", *self as u32)
+    }
+}
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Value::STR(s) => {
+                write!(f, "{}", s)
+            }
+            Value::ARR(arr) => {
+                write!(f, "{}", array2string(arr.clone()))
+            }
+        }
     }
 }
