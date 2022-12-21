@@ -784,8 +784,7 @@ fn interpret_func(
                     "drop" => {
                         live_stack.pop().expect("INTERP: error no argument to drop");
                     }
-                    ";" => {
-                        //risky!
+                    "clear" => { //risky! clears the entire stack
                         live_stack.clear();
                     }
                     "rot" => {
@@ -883,7 +882,7 @@ fn interpret_func(
 
 fn cast2int(data: &String) -> i32 {
     data.parse::<i32>().unwrap_or_else(|_|
-        panic!("INTERP: can't parse {} to int",data))
+        panic!("INTERP: can't parse {} to int", data))
 }
 
 fn cast2float(data: &String) -> f64 {
