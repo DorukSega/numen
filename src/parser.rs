@@ -84,7 +84,7 @@ pub fn parse_file(mut lexed: Vec<Lexeme<String>>) -> HashMap<String, Function> {
                         fname.clear();
                     }
                 }
-                TokId::WHILE | TokId::IF | TokId::BLOCK => { //BLOCK CHECK
+                TokId::WHILE | TokId::IF | TokId::BLOCK | TokId::LOOP => { //BLOCK CHECK
                     block_count += 1;
                     funcref.stack.push(lex2obj(lex.clone()));
                 }

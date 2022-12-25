@@ -1,7 +1,7 @@
 use crate::head;
 use head::{Lexeme, TokId};
 
-const LEXMAP: [Lexeme<&'static str>; 29] = [
+const LEXMAP: [Lexeme<&'static str>; 31] = [
     Lexeme { id: TokId::FUNCTION, rep: "fun" },
     Lexeme { id: TokId::IMPORT, rep: "import" },
     Lexeme { id: TokId::END, rep: "end" },
@@ -10,7 +10,8 @@ const LEXMAP: [Lexeme<&'static str>; 29] = [
     Lexeme { id: TokId::WHILE, rep: "while" },
     Lexeme { id: TokId::DO, rep: "do" },
     Lexeme { id: TokId::IF, rep: "if" },
-    Lexeme { id: TokId::BLOCK, rep: "block" },
+    Lexeme { id: TokId::BLOCK, rep: "let" },
+    Lexeme { id: TokId::LOOP, rep: "loop" },
     Lexeme { id: TokId::ELSE, rep: "else" },
     Lexeme { id: TokId::PLUS, rep: "+" },
     Lexeme { id: TokId::MINUS, rep: "-" },
@@ -28,6 +29,7 @@ const LEXMAP: [Lexeme<&'static str>; 29] = [
     Lexeme { id: TokId::TFLOAT, rep: "float" },
     Lexeme { id: TokId::TSTRING, rep: "str" },
     Lexeme { id: TokId::TBOOL, rep: "bool" },
+    Lexeme { id: TokId::TARRAY, rep: "array" },
     Lexeme { id: TokId::IS, rep: "is" },
     Lexeme { id: TokId::ARRAYBEGIN, rep: "[" },
     Lexeme { id: TokId::ARRAYEND, rep: "]" },
@@ -67,7 +69,7 @@ pub fn lexer_file(file: &String) -> Vec<Lexeme<String>> {
             continue; // must continue to avoid parsing
         }
 
-        if char == '['  {
+        if char == '[' {
             if word.len() > 0 {
                 // this will only run when the word is not empty
                 result.push(Lexeme {

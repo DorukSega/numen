@@ -5,6 +5,9 @@ pub const GLOBAL: &'static str = "_global";
 // main function name
 pub const MAIN: &'static str = "main";
 
+pub const TRUE: &'static str = "true";
+pub const FALSE: &'static str = "false";
+
 #[derive(PartialEq, Clone, Debug, Copy)]
 pub enum TokId {
     FUNCTION,
@@ -19,6 +22,7 @@ pub enum TokId {
     PLUS,
     MINUS,
     BLOCK,
+    LOOP,
     MULTIPLY,
     DIVIDE,
     MOD,
@@ -42,6 +46,7 @@ pub enum TokId {
     TFLOAT,
     TSTRING,
     TBOOL,
+    TARRAY,
     // for cool visualizations
     LINEBREAK,
     UNKNOWN,

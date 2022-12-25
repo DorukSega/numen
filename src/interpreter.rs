@@ -1,5 +1,5 @@
-use crate::head::{Function, TokId, GLOBAL, MAIN, Object, Value};
-use std::collections::HashMap;
+use crate::head::{Function, TokId, GLOBAL, MAIN, Object, Value, TRUE, FALSE};
+use std::collections::{HashMap, VecDeque};
 use std::process::{exit};
 
 
@@ -71,25 +71,30 @@ fn interpret_func(
                     TokId::TINT => {
                         if value.id == TokId::INT {
                             live_stack.push(value)
-                        }
+                        } else { panic!("INTERP: error the type and value of the parameter don't match") }
                     }
                     TokId::TFLOAT => {
                         if value.id == TokId::FLOAT {
                             live_stack.push(value)
-                        }
+                        } else { panic!("INTERP: error the type and value of the parameter don't match") }
                     }
                     TokId::TSTRING => {
                         if value.id == TokId::STRING {
                             live_stack.push(value)
-                        }
+                        } else { panic!("INTERP: error the type and value of the parameter don't match") }
                     }
                     TokId::TBOOL => {
                         if value.id == TokId::BOOLEAN {
                             live_stack.push(value)
-                        }
+                        } else { panic!("INTERP: error the type and value of the parameter don't match") }
+                    }
+                    TokId::TARRAY => {
+                        if value.id == TokId::ARRAY {
+                            live_stack.push(value)
+                        } else { panic!("INTERP: error the type and value of the parameter don't match") }
                     }
                     _ => {
-                        panic!("{} is not a name of a type", arg.id)
+                        panic!("INTERP: {} is not a name of a type", arg.id)
                     }
                 }
             }
@@ -121,7 +126,7 @@ fn interpret_func(
                     let mut block_count = 0;
                     while item.id != TokId::END || block_count != 0 {
                         match item.id {
-                            TokId::IF | TokId::WHILE => block_count += 1,
+                            TokId::IF | TokId::WHILE | TokId::BLOCK | TokId::LOOP => block_count += 1, //BLOCK CHECK
                             TokId::END => block_count -= 1,
                             _ => {}
                         }
@@ -150,6 +155,79 @@ fn interpret_func(
         match tok.id {
             TokId::LINEBREAK => {} // should not use linebreak
             TokId::IMPORT => {}
+            TokId::BLOCK => {
+                let mut as_params: Vec<Object> = Vec::new();
+                let mut let_stack: Vec<Object> = Vec::new();
+                let mut item = iter.next().expect("INTERP: no condition to evaluate for while").1;
+
+                while item.id != TokId::AS {
+                    as_params.push(item.clone());
+                    item = iter.next().expect("INTERP: 'as' is missing for the let statement").1;
+                }
+                item = iter.next().expect("INTERP: no argument to evaluate for let ... as").1;
+
+                while let Some(item) = as_params.pop() {
+                    if item.id == TokId::UNKNOWN {
+                        let Value::STR(name) = &item.rep else {
+                            panic!("INTERP: parameter name is not a string");
+                        };
+                        live_heap.insert(name.to_string(), live_stack.pop().expect("INTERP: no item to parameterise for let"));
+                    } else {
+                        let Some(value) = live_stack.pop() else {
+                            panic!("INTERP: no item to parameterise for let");
+                        };
+                        match item.id {
+                            TokId::TINT => {
+                                if value.id == TokId::INT {
+                                    let_stack.push(value)
+                                } else { panic!("INTERP: error the type and value of the parameter don't match") }
+                            }
+                            TokId::TFLOAT => {
+                                if value.id == TokId::FLOAT {
+                                    let_stack.push(value)
+                                } else { panic!("INTERP: error the type and value of the parameter don't match") }
+                            }
+                            TokId::TSTRING => {
+                                if value.id == TokId::STRING {
+                                    let_stack.push(value)
+                                } else { panic!("INTERP: error the type and value of the parameter don't match") }
+                            }
+                            TokId::TBOOL => {
+                                if value.id == TokId::BOOLEAN {
+                                    let_stack.push(value)
+                                } else { panic!("INTERP: error the type and value of the parameter don't match") }
+                            }
+                            TokId::TARRAY => {
+                                if value.id == TokId::ARRAY {
+                                    let_stack.push(value)
+                                } else { panic!("INTERP: error the type and value of the parameter don't match") }
+                            }
+                            _ => {
+                                panic!("INTERP: {} is not a name of a type", item.id)
+                            }
+                        }
+                    }
+                }
+                let_stack.reverse();
+                let mut block_count = 0;
+                while item.id != TokId::END || block_count != 0 {
+                    match item.id {
+                        TokId::IF | TokId::WHILE | TokId::BLOCK | TokId::LOOP => block_count += 1, //BLOCK CHECK
+                        TokId::END => block_count -= 1,
+                        _ => {}
+                    }
+                    let_stack.push(item.clone());
+                    item = iter.next().expect("INTERP: 'end' is missing for the let ... as statement").1;
+                }
+
+                let mut runned_stack = interpret_func(
+                    function_map, fname.clone(), global_heap, parent_stack.as_deref_mut(),
+                    Some(let_stack.clone()), Some(&mut live_heap),
+                );
+                while let Some(item) = runned_stack.pop() {
+                    live_stack.push(item)
+                }
+            }
             TokId::WHILE => {
                 let mut while_cond: Vec<Object> = Vec::new();
                 let mut do_stack: Vec<Object> = Vec::new();
@@ -157,7 +235,7 @@ fn interpret_func(
                 let mut block_count = 0;
                 while item.id != TokId::DO || block_count != 0 {
                     match item.id {
-                        TokId::IF | TokId::WHILE => block_count += 1,
+                        TokId::IF | TokId::WHILE | TokId::BLOCK | TokId::LOOP => block_count += 1, //BLOCK CHECK
                         TokId::END => block_count -= 1,
                         _ => {}
                     }
@@ -168,7 +246,7 @@ fn interpret_func(
                 block_count = 0;
                 while item.id != TokId::END || block_count != 0 {
                     match item.id {
-                        TokId::IF | TokId::WHILE => block_count += 1,
+                        TokId::IF | TokId::WHILE | TokId::BLOCK | TokId::LOOP => block_count += 1, //BLOCK CHECK
                         TokId::END => block_count -= 1,
                         _ => {}
                     }
@@ -181,7 +259,7 @@ fn interpret_func(
                     Some(while_cond.clone()), Some(&mut live_heap),
                 );
                 let mut condition = result.pop().expect("INTERP: no condition for while");
-                while cast2string(&condition.rep) == "true" {
+                while cast2string(&condition.rep) == TRUE {
                     let mut runned_stack = interpret_func(
                         function_map, fname.clone(), global_heap, parent_stack.as_deref_mut(),
                         Some(do_stack.clone()), Some(&mut live_heap),
@@ -201,18 +279,18 @@ fn interpret_func(
                 if condition.id != TokId::BOOLEAN {
                     panic!("INTERP: argument {} is not the type boolean", condition.id)
                 }
-                if cast2string(&condition.rep) == "true" {
+                if cast2string(&condition.rep) == TRUE {
                     block_level += 1;
                     block_types.push(BlockType::IF);
                     vector_heap.insert(block_level as usize, HashMap::new());
                     continue;
-                } else if cast2string(&condition.rep) == "false" {
+                } else if cast2string(&condition.rep) == FALSE {
                     let mut item = iter.next().expect("INTERP: no argument to evaluate for if").1;
                     let mut block_count = 0;
                     // This will skip everything until else or end
                     while (item.id != TokId::END && item.id != TokId::ELSE) || block_count != 0 {
                         match item.id {
-                            TokId::IF | TokId::WHILE => block_count += 1,
+                            TokId::IF | TokId::WHILE | TokId::BLOCK | TokId::LOOP => block_count += 1, //BLOCK CHECK
                             TokId::END => block_count -= 1,
                             _ => {}
                         }
@@ -468,15 +546,16 @@ fn interpret_func(
                     || (first.id == TokId::FLOAT && second.id == TokId::TFLOAT)
                     || (first.id == TokId::BOOLEAN && second.id == TokId::TBOOL)
                     || (first.id == TokId::STRING && second.id == TokId::TSTRING)
+                    || (first.id == TokId::ARRAY && second.id == TokId::TARRAY)
                 {
                     live_stack.push(Object {
                         id: TokId::BOOLEAN,
-                        rep: Value::STR("true".to_string()),
+                        rep: Value::STR(TRUE.to_string()),
                     });
                 } else {
                     live_stack.push(Object {
                         id: TokId::BOOLEAN,
-                        rep: Value::STR("false".to_string()),
+                        rep: Value::STR(FALSE.to_string()),
                     });
                 }
             }
@@ -531,12 +610,12 @@ fn interpret_func(
                 if first == second {
                     live_stack.push(Object {
                         id: TokId::BOOLEAN,
-                        rep: Value::STR("true".to_string()),
+                        rep: Value::STR(TRUE.to_string()),
                     });
                 } else {
                     live_stack.push(Object {
                         id: TokId::BOOLEAN,
-                        rep: Value::STR("false".to_string()),
+                        rep: Value::STR(FALSE.to_string()),
                     });
                 }
             }
@@ -552,19 +631,19 @@ fn interpret_func(
                         if second.id == TokId::INT && cast2int(cast2string(&first.rep)) > cast2int(cast2string(&second.rep)) {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else if second.id == TokId::FLOAT
                             && cast2int(cast2string(&first.rep)) as f64 > cast2float(cast2string(&second.rep))
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("false".to_string()),
+                                rep: Value::STR(FALSE.to_string()),
                             })
                         }
                     }
@@ -574,19 +653,19 @@ fn interpret_func(
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else if second.id == TokId::FLOAT
                             && cast2float(cast2string(&first.rep)) > cast2float(cast2string(&second.rep))
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("false".to_string()),
+                                rep: Value::STR(FALSE.to_string()),
                             })
                         }
                     }
@@ -607,7 +686,7 @@ fn interpret_func(
                         if second.id == TokId::INT && cast2int(cast2string(&first.rep)) < cast2int(cast2string(&second.rep)) {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else if second.id == TokId::FLOAT
                             && cast2float(cast2string(&second.rep)) > cast2int(cast2string(&first.rep)) as f64
@@ -615,12 +694,12 @@ fn interpret_func(
                             // hack because other way don't work
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("false".to_string()),
+                                rep: Value::STR(FALSE.to_string()),
                             })
                         }
                     }
@@ -630,19 +709,19 @@ fn interpret_func(
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else if second.id == TokId::FLOAT
                             && cast2float(cast2string(&first.rep)) < cast2float(cast2string(&second.rep))
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("false".to_string()),
+                                rep: Value::STR(FALSE.to_string()),
                             })
                         }
                     }
@@ -664,19 +743,19 @@ fn interpret_func(
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else if second.id == TokId::FLOAT
                             && cast2int(cast2string(&first.rep)) as f64 >= cast2float(cast2string(&second.rep))
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("false".to_string()),
+                                rep: Value::STR(FALSE.to_string()),
                             })
                         }
                     }
@@ -686,19 +765,19 @@ fn interpret_func(
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else if second.id == TokId::FLOAT
                             && cast2float(cast2string(&first.rep)) >= cast2float(cast2string(&second.rep))
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("false".to_string()),
+                                rep: Value::STR(FALSE.to_string()),
                             })
                         }
                     }
@@ -720,19 +799,19 @@ fn interpret_func(
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else if second.id == TokId::FLOAT
                             && cast2int(cast2string(&first.rep)) as f64 <= cast2float(cast2string(&second.rep))
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("false".to_string()),
+                                rep: Value::STR(FALSE.to_string()),
                             })
                         }
                     }
@@ -742,19 +821,19 @@ fn interpret_func(
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else if second.id == TokId::FLOAT
                             && cast2float(cast2string(&first.rep)) <= cast2float(cast2string(&second.rep))
                         {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("true".to_string()),
+                                rep: Value::STR(TRUE.to_string()),
                             })
                         } else {
                             live_stack.push(Object {
                                 id: TokId::BOOLEAN,
-                                rep: Value::STR("false".to_string()),
+                                rep: Value::STR(FALSE.to_string()),
                             })
                         }
                     }
@@ -821,8 +900,8 @@ fn interpret_func(
                         let third = live_stack.pop().expect("INTERP: error no argument to rot");
                         let second = live_stack.pop().expect("INTERP: error no argument to rot");
                         let first = live_stack.pop().expect("INTERP: error no argument to rot");
-                        live_stack.push(first);
                         live_stack.push(third);
+                        live_stack.push(first);
                         live_stack.push(second);
                     }
                     "copy" => {
@@ -905,6 +984,24 @@ fn interpret_func(
                                 });
                                 live_stack.push(popped)
                             }
+                        }
+                    }
+                    "len" => {
+                        let item = live_stack.last().expect("INTERP: error no argument to get length of");
+                        match item.id {
+                            TokId::ARRAY => {
+                                let Value::ARR(arr) = &item.rep else {
+                                    panic!("INTERP: expected Array but got this {}", item.rep);
+                                };
+                                live_stack.push(Object {
+                                    id: TokId::INT,
+                                    rep: Value::STR(arr.len().to_string()),
+                                })
+                            }
+                            _ => live_stack.push(Object {
+                                id: TokId::INT,
+                                rep: Value::STR("0".to_string()),
+                            })
                         }
                     }
                     def => {

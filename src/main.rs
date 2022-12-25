@@ -70,18 +70,19 @@ fn print_function(name: &String, fun: &Function) {
         match item.id {
             TokId::WHILE | TokId::DO | TokId::IF | TokId::BLOCK
             | TokId::ELSE | TokId::FUNCTION | TokId::IMPORT | TokId::END
-            | TokId::AS | TokId::RET | TokId::ASSIGNMENT | TokId::RETURNINGASSIGNMENT | TokId::ARRAY => {
+            | TokId::AS | TokId::RET | TokId::ASSIGNMENT | TokId::RETURNINGASSIGNMENT
+            | TokId::ARRAY | TokId::LOOP => {
                 print!("\x1b[35m{} \x1b[0m", item.rep);
             }
             TokId::PLUS | TokId::MINUS | TokId::MULTIPLY | TokId::DIVIDE
             | TokId::MOD | TokId::EQUALS | TokId::BIGGER | TokId::SMALLER
-            | TokId::BIGGEREQUALS | TokId::SMALLEREQUALS | TokId::IS   => {
+            | TokId::BIGGEREQUALS | TokId::SMALLEREQUALS | TokId::IS => {
                 print!("\x1b[31m{} \x1b[0m", item.rep);
             }
-            TokId::ARRAYBEGIN =>{
+            TokId::ARRAYBEGIN => {
                 print!("[ ");
             }
-            TokId::ARRAYEND =>{
+            TokId::ARRAYEND => {
                 print!("] ");
             }
             TokId::STRING => {
@@ -93,7 +94,7 @@ fn print_function(name: &String, fun: &Function) {
             TokId::INT | TokId::FLOAT => {
                 print!("\x1b[33m{} \x1b[0m", item.rep);
             }
-            TokId::TINT | TokId::TFLOAT | TokId::TSTRING | TokId::TBOOL => {
+            TokId::TINT | TokId::TFLOAT | TokId::TSTRING | TokId::TBOOL | TokId::TARRAY => {
                 print!("\x1b[95m{} \x1b[0m", item.rep);
             }
             TokId::LINEBREAK => {
