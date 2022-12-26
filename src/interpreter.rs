@@ -1,5 +1,5 @@
 use crate::head::{Function, TokId, GLOBAL, MAIN, Object, Value, TRUE, FALSE};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap};
 use std::process::{exit};
 
 
@@ -155,10 +155,41 @@ fn interpret_func(
         match tok.id {
             TokId::LINEBREAK => {} // should not use linebreak
             TokId::IMPORT => {}
+            TokId::LOOP => {
+                let times = live_stack.pop().expect("INTERP: no times argument for loop");
+                if times.id != TokId::INT {
+                    panic!("INTERP: can't evaluate times statement")
+                }
+
+                let mut loop_stack: Vec<Object> = Vec::new();
+                let mut block_count = 0;
+                let mut item = iter.next().expect("INTERP: no condition to evaluate for loop").1;
+
+                while item.id != TokId::END || block_count != 0 {
+                    match item.id {
+                        TokId::IF | TokId::WHILE | TokId::BLOCK | TokId::LOOP => block_count += 1, //BLOCK CHECK
+                        TokId::END => block_count -= 1,
+                        _ => {}
+                    }
+                    loop_stack.push(item.clone());
+                    item = iter.next().expect("INTERP: 'end' is missing for the loop statement").1;
+                }
+                for it in 0..cast2int(cast2string(&times.rep)) {
+                    live_heap.insert("it".to_string(), Object { id: TokId::INT, rep: Value::STR(it.to_string()) });
+                    let mut runned_stack = interpret_func(
+                        function_map, fname.clone(), global_heap, parent_stack.as_deref_mut(),
+                        Some(loop_stack.clone()), Some(&mut live_heap),
+                    );
+                    while let Some(item) = runned_stack.pop() {
+                        live_stack.push(item)
+                    }
+                }
+                live_heap.remove("it");
+            }
             TokId::BLOCK => {
                 let mut as_params: Vec<Object> = Vec::new();
                 let mut let_stack: Vec<Object> = Vec::new();
-                let mut item = iter.next().expect("INTERP: no condition to evaluate for while").1;
+                let mut item = iter.next().expect("INTERP: no condition to evaluate for let").1;
 
                 while item.id != TokId::AS {
                     as_params.push(item.clone());
@@ -984,6 +1015,45 @@ fn interpret_func(
                                 });
                                 live_stack.push(popped)
                             }
+                        }
+                    }
+                    "fetch" => {
+                        let second = live_stack.pop().expect("INTERP: error no argument to fetch");
+                        let first = live_stack.pop().expect("INTERP: error no argument to fetch");
+                        if first.id == TokId::ARRAY {
+                            match second.id {
+                                TokId::INT => {
+                                    let Value::ARR(first_arr) = first.rep else {
+                                        panic!("INTERP: expected Array but got this {}", first.rep);
+                                    };
+                                    let mut ind32 = cast2int(cast2string(&second.rep));
+                                    if ind32 < 0 {
+                                        ind32 = first_arr.len() as i32 + ind32;
+                                    }
+                                    live_stack.push(
+                                        first_arr.get(ind32 as usize).expect("INTERP: array out of bounds").clone()
+                                    )
+                                }
+                                _ => panic!("INTERP: {} can't be indexed by {}", second.rep, first.rep)
+                            }
+                        } else if second.id == TokId::ARRAY {
+                            match first.id {
+                                TokId::INT => {
+                                    let Value::ARR(second_arr) = second.rep else {
+                                        panic!("INTERP: expected Array but got this {}", second.rep);
+                                    };
+                                    let mut ind32 = cast2int(cast2string(&first.rep));
+                                    if ind32 < 0 {
+                                        ind32 = second_arr.len() as i32 + ind32;
+                                    }
+                                    live_stack.push(
+                                        second_arr.get(ind32 as usize).expect("INTERP: array out of bounds").clone()
+                                    )
+                                }
+                                _ => panic!("INTERP: {} can't be indexed by {}", first.rep, second.rep)
+                            }
+                        } else {
+                            panic!("INTERP: no Array provided for fetch")
                         }
                     }
                     "len" => {
