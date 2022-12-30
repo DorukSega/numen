@@ -14,14 +14,16 @@ pub fn interpret(mut function_map: HashMap<String, Function>) {
         None,
         None,
     );
-    interpret_func(
-        &mut function_map,
-        MAIN.to_string(),
-        &mut global_heap,
-        None,
-        None,
-        None,
-    );
+    if function_map.contains_key(MAIN) {
+        interpret_func(
+            &mut function_map,
+            MAIN.to_string(),
+            &mut global_heap,
+            None,
+            None,
+            None,
+        );
+    }
 }
 
 fn interpret_func(
@@ -151,6 +153,7 @@ fn interpret_func(
                 }
             }
         }
+
 
         match tok.id {
             TokId::LINEBREAK => {} // should not use linebreak

@@ -39,8 +39,9 @@ pub fn get_path(filename: &String) -> String {
 }
 
 pub fn read_file(filename: &String) -> String {
-    println!("MAIN: Reading file {}", filename);
-
+    if cfg!(any(debug_assertions)) { // IS COMPILED AS DEBUG MODE
+        println!("MAIN: Reading file {}", filename);
+    }
     //TODO: check standard library and see if it is referenced
     let filepath = get_path(filename);
 
@@ -56,13 +57,17 @@ pub fn run_file(filename: &String) {
     let fmap = parse_file(lexed);
 
     for (name, fun) in &fmap {
-        print_function(name, fun);
+        if cfg!(any(debug_assertions)) { // IS COMPILED AS DEBUG MODE
+            print_function(name, fun);
+        }
+
         /* println!("{}:", name);
         println!("{:?}\n", fun);*/
     }
 
     interpret(fmap);
 }
+
 
 fn print_function(name: &String, fun: &Function) {
     println!("\x1b[31;1m{}: \x1b[0m", name);
